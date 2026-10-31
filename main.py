@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import QApplication
 
 from ui.overlay import Overlay
 from data.map_calibration import list_maps_with_images
-from data.gadgets import OPERATOR_INFO
 
 
 class MatchState:
@@ -56,23 +55,7 @@ class MatchState:
             overlay.update()
 
 
-class OperatorPicker:
-    """Selección manual/cíclica del operador propio (F6)."""
-    def __init__(self):
-        self.names = list(OPERATOR_INFO.keys())
-        self.index = -1
-
-    def cycle(self, overlay: Overlay):
-        if not self.names:
-            return
-        self.index = (self.index + 1) % len(self.names)
-        name = self.names[self.index]
-        overlay.set_my_kit(name)
-        overlay.show_ephemeral_notice(f"Tu operador: {name}", duration_ms=1500)
-
-
 match_state = MatchState()
-operator_picker = OperatorPicker()
 
 
 class Bridge(QObject):
@@ -174,8 +157,6 @@ class UiDispatcher(QObject):
     @pyqtSlot(str)
     def on_my_operator_seen(self, operator_name: str):
         try:
-            if operator_name in operator_picker.names:
-                operator_picker.index = operator_picker.names.index(operator_name)
             self.overlay.set_my_kit(operator_name)
             self.overlay.show_ephemeral_notice(f"Tu operador: {operator_name}", duration_ms=2000)
         except Exception as exc:
@@ -199,18 +180,6 @@ class UiDispatcher(QObject):
     def _dispatch_hotkey(self, key: str):
         if key == "F1":
             self.overlay.toggle_tactical_hud()
-        elif key == "F2":
-            self.overlay.toggle_map_panel(match_state.current_map, match_state.current_floor)
-        elif key == "F3":
-            self.overlay.toggle_drone_log(not self.overlay.state.drone_log_visible)
-        elif key == "F4":
-            match_state.cycle_map(self.overlay)
-        elif key == "F5":
-            side = "Atacantes" if self.overlay.state.my_side == "Defensores" else "Defensores"
-            self.overlay.state.my_side = side
-            self.overlay.show_ephemeral_notice(f"Tu lado: {side}", duration_ms=1500)
-        elif key == "F6":
-            operator_picker.cycle(self.overlay)
 
 
 def _reader_thread(name: str, target):
@@ -354,10 +323,10 @@ def _stop_process(process, label: str):
 
 def setup_hotkeys(bridge: Bridge):
     from ui.win_hotkeys import HAS_WIN_HOTKEYS
-    labels = ["F1", "F2", "F3", "F4", "F5", "F6"]
+    labels = ["F1"]
     if HAS_WIN_HOTKEYS:
-        from ui.win_hotkeys import start_hotkey_thread, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6
-        vk_codes = [VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6]
+        from ui.win_hotkeys import start_hotkey_thread, VK_F1
+        vk_codes = [VK_F1]
         bindings = [(vk, (lambda current=key: bridge.hotkey_pressed.emit(current))) for key, vk in zip(labels, vk_codes)]
         start_hotkey_thread(bindings)
         return

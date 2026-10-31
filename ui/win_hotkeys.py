@@ -1,5 +1,5 @@
 """
-Hotkeys globales (F1-F6) vía la API nativa de Windows RegisterHotKey, en vez
+Hotkey global F1 vía la API nativa de Windows RegisterHotKey, en vez
 de la librería 'keyboard'.
 
 Primer intento (descartado): 'keyboard' instala un hook global de teclado
@@ -46,13 +46,8 @@ if HAS_WIN_HOTKEYS:
     WM_HOTKEY = 0x0312
     MOD_NOREPEAT = 0x4000  # evita que se dispare en bucle mientras la tecla queda apretada
 
-    # Códigos de tecla virtual de Windows para F1-F6 (son consecutivos).
+    # Código de tecla virtual de Windows para F1.
     VK_F1 = 0x70
-    VK_F2 = 0x71
-    VK_F3 = 0x72
-    VK_F4 = 0x73
-    VK_F5 = 0x74
-    VK_F6 = 0x75
 
     def run_hotkey_thread(bindings: list[tuple[int, callable]]):
         """
@@ -85,7 +80,7 @@ if HAS_WIN_HOTKEYS:
 
             if not callbacks_by_id:
                 print("[win_hotkeys] Ninguna hotkey se pudo registrar -- "
-                      "F1-F6 no van a funcionar. El resto del overlay sigue "
+                      "F1 no va a funcionar. El resto del overlay sigue "
                       "normal.")
                 return
 
@@ -105,7 +100,7 @@ if HAS_WIN_HOTKEYS:
                 if msg.message == WM_HOTKEY:
                     callback = callbacks_by_id.get(msg.wParam)
                     # Diagnóstico: confirma que Windows SÍ entregó la tecla a
-                    # este programa (si el usuario reporta que F1-F3 "no
+                    # este programa (si el usuario reporta que F1 "no
                     # responden" y esta línea no aparece en el log, el
                     # problema es que el mensaje nunca llegó -- otro
                     # programa se la robó antes -- no un bug de este código).
@@ -118,7 +113,7 @@ if HAS_WIN_HOTKEYS:
                                   f"hotkey: {type(e).__name__}: {e}")
         except Exception as e:
             print(f"[win_hotkeys] El hilo de hotkeys falló "
-                  f"({type(e).__name__}: {e}) -- F1-F6 no van a funcionar. "
+                  f"({type(e).__name__}: {e}) -- F1 no va a funcionar. "
                   f"El resto del overlay sigue normal.")
         finally:
             for hotkey_id in list(callbacks_by_id.keys()):

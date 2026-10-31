@@ -350,7 +350,7 @@ class Overlay(QWidget):
         tarjetas oscuras semitransparentes y el marco naranja. El diseño se define
         en coordenadas 1920x1080 y se escala al tamaño real del monitor.
         """
-        operator_name = self.state.my_kit or self.state.selected_operator or "Mute"
+        operator_name = self.state.my_kit or self.state.selected_operator or ""
         info = get_operator_info(operator_name) or {}
 
         painter.save()
@@ -490,6 +490,22 @@ class Overlay(QWidget):
         painter.setBrush(QColor(7, 10, 14, 115))
         painter.setPen(QPen(QColor(*COLOR_LIME, 200), 1.5))
         painter.drawRoundedRect(panel, 4, 4)
+        if not operator_name:
+            unknown = self._load_pixmap(ICON["unknown_operator"])
+            if unknown and not unknown.isNull():
+                painter.drawPixmap(QRectF(115, 300, 230, 230), unknown, QRectF(unknown.rect()))
+            painter.setPen(QColor(245, 245, 245))
+            painter.setFont(QFont(FONT_FAMILY, 22, QFont.Weight.Bold))
+            painter.drawText(390, 330, "TU OPERADOR")
+            painter.setPen(QColor(*COLOR_BLUE))
+            painter.setFont(QFont(FONT_FAMILY, 34, QFont.Weight.Bold))
+            painter.drawText(QRectF(390, 345, 380, 110), Qt.TextFlag.TextWordWrap,
+                             "ESPERANDO DETECCIÓN")
+            painter.setPen(QColor(*COLOR_TEXT_LIGHT))
+            painter.setFont(QFont(FONT_FAMILY, 20))
+            painter.drawText(QRectF(390, 465, 370, 130), Qt.TextFlag.TextWordWrap,
+                             "La ficha aparecerá cuando el programa reconozca tu agente.")
+            return
         badge_path = self._operator_badge_path(operator_name)
         badge = self._load_pixmap(badge_path) if badge_path else None
         if badge and not badge.isNull():

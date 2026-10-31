@@ -6,6 +6,7 @@ completo de carpeta o ejecutarse desde un acceso directo de Windows.
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QObject, QEvent
@@ -25,6 +26,11 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 ASSETS_UI = os.path.join(ASSETS_DIR, "ui")
 BADGES_DIR = os.path.join(ASSETS_UI, "badges")
 RECURSOS_DIR = os.path.join(ASSETS_DIR, "recursos")
+MAP_PHOTOS_DIR = os.path.join(RECURSOS_DIR, "mapas_hud", "MAPAS", "fotos")
+MAP_REFERENCES_IMAGE = os.path.join(RECURSOS_DIR, "mapas_hud", "referencias.png")
+NAV_HIGHLIGHT_IMAGE = os.path.join(RECURSOS_DIR, "resaltar.png")
+SEARCH_ICON_IMAGE = os.path.join(ASSETS_DIR, "lupa.png")
+SETTINGS_ICON_IMAGE = os.path.join(ASSETS_DIR, "tuerca.png")
 INFO_BACKGROUND = os.path.join(ASSETS_DIR, "fondo_info.png")
 
 BG = "#0c0f17"
@@ -71,6 +77,45 @@ MAP_RESOURCE_FILES = {
     "Presidential Plane": "AVION PRESIDENCIAL", "Tower": "TORRE", "Yacht": "YATE",
 }
 
+MAP_PHOTO_PREFIXES = {
+    "Bank": ("BANCO",), "Border": ("FRONTERA",), "Chalet": ("CHALET",),
+    "Clubhouse": ("CLUB",), "Coastline": ("LITORAL",), "Consulado": ("CONSULADO",),
+    "Emerald Plains": ("PRADERA ESMERALDA", "PRADERAS ESMERALDA"),
+    "Favela": ("FAVELA",), "Fortress": ("FORTALEZA",), "Kafe Dostoyevsky": ("KAFE",),
+    "Kanal": ("KANAL",), "Lair": ("GUARIDA",), "Nighthaven Labs": ("LABORATORIO",),
+    "Oregon": ("OREGON",), "Outback": ("OUTBACK",), "Skyscraper": ("RASCACIELOS",),
+    "Stadium Alpha": ("ESTADIO ALFA",), "Stadium Bravo": ("ESTADIO BRAVO", "ESATDIO BRAVO"),
+    "Theme Park": ("PARQUE DE ATRACCIONES",), "Villa": ("VILLA",),
+    "Calypso Casino": ("CASINO",), "Hereford Base": ("HEREFORD",), "House": ("CASA",),
+    "Presidential Plane": ("AVION",), "Tower": ("TORRE",), "Yacht": ("YATE",),
+}
+
+MAP_PHOTO_COVERS = {
+    "Bank": "BANCO.png", "Border": "FRONTERA.png", "Chalet": "CHALET.png",
+    "Clubhouse": "CLUB.png", "Coastline": "LITORAL.png", "Consulado": "CONSULADO 1.png",
+    "Emerald Plains": "PRADERA ESMERALDA.png", "Favela": "FAVELA 1.png",
+    "Fortress": "FORTALEZA.png", "Kafe Dostoyevsky": "KAFE.png", "Kanal": "KANAL.png",
+    "Lair": "GUARIDA.png", "Nighthaven Labs": "LABORATORIO.png", "Oregon": "OREGON.png",
+    "Outback": "OUTBACK.png", "Skyscraper": "RASCACIELOS.png", "Stadium Alpha": "ESTADIO ALFA.png",
+    "Stadium Bravo": "ESTADIO BRAVO.png", "Theme Park": "PARQUE DE ATRACCIONES.png",
+    "Villa": "VILLA.png", "Calypso Casino": "CASINO CALYPSO.png", "Hereford Base": "HEREFORD.png",
+    "House": "CASA.png", "Presidential Plane": "AVION PRESIDENCIAL.png",
+    "Tower": "TORRE.png", "Yacht": "YATE.png",
+}
+
+MAP_DETAIL_PHOTOS = {
+    "Bank": "BANCO 5.png", "Chalet": "CHALET 2.png", "Clubhouse": "CLUB 2.png",
+    "Consulado": "CONSULADO 3.png", "Emerald Plains": "PRADERA ESMERALDA (2).png",
+    "Favela": "FAVELA 3.png", "Fortress": "FORTALEZA 2.png", "Border": "FRONTERA 54.png",
+    "Hereford Base": "hereford 3.png", "Kafe Dostoyevsky": "KAFE 3.png", "Kanal": "KANAL 2.png",
+    "Nighthaven Labs": "LABORATORIO 2.png", "Coastline": "LITORAL.png", "Oregon": "OREGON 2.png",
+    "Outback": "OUTBACK 4.png", "Theme Park": "PARQUE DE ATRACCIONES 4.png",
+    "Skyscraper": "RASCACIELOS.png", "Tower": "TORRE 3.png", "Villa": "villa.png",
+    "Yacht": "YATE.png", "House": "CASA 2.png", "Presidential Plane": "AVION PRESIDENCIAL 2.png",
+    "Stadium Alpha": "ESTADIO ALFA.png", "Stadium Bravo": "ESATDIO BRAVO 2.png",
+    "Calypso Casino": "CASINO 3.png",
+}
+
 DEFENDER_DETAIL_FRAMES = {
     "Noor": 2, "Denari": 3, "Skopos": 4, "Sentry": 5, "Tubarao": 6,
     "Fenrir": 7, "Wamai": 8, "Solis": 9, "Azami": 10, "Goyo": 11,
@@ -109,34 +154,51 @@ ATTACKER_HOME_ICONS = {
 }
 
 MAP_DESCRIPTIONS = {
-    "Calypso Casino": "Casino en Las Vegas con espacios abiertos, zonas de servicio y rutas de rotación interiores.",
-    "Chalet": "Refugio alpino con varias rutas verticales, accesos exteriores y paredes destructibles.",
-    "Bank": "Edificio bancario con bóveda subterránea, vestíbulo y conexiones verticales.",
-    "Kafe Dostoyevsky": "Café de varios niveles con claraboyas, escaleras y oportunidades de control vertical.",
-    "Border": "Puesto fronterizo con corredores de conexión y superficies destructibles.",
-    "Hereford Base": "Instalación de entrenamiento con múltiples niveles y habitaciones conectadas.",
-    "Coastline": "Complejo costero con patio central y rutas de flanqueo entre edificios.",
-    "Consulado": "Complejo diplomático con oficinas, accesos exteriores y un sótano reforzable.",
-    "Clubhouse": "Club de motociclistas con almacén, bar, túneles y zonas de rotación.",
-    "Oregon": "Complejo rural con dormitorios, torre y conexiones subterráneas.",
-    "Emerald Plains": "Mansión con alas conectadas, terrazas y rutas de acceso exteriores.",
-    "Favela": "Zona urbana de calles estrechas, múltiples accesos y superficies ligeras.",
-    "Fortress": "Fortaleza de varios niveles con patios interiores y espacios de transición.",
-    "Kanal": "Instalación portuaria dividida por canales y conectada por puentes.",
-    "Lair": "Instalación subterránea con pasillos y sectores de distintas alturas.",
-    "Nighthaven Labs": "Complejo de investigación con salas conectadas y líneas de visión largas.",
-    "Outback": "Parador de carretera con zonas de servicio y rutas laterales.",
-    "Skyscraper": "Rascacielos con alas conectadas, terrazas y zonas abiertas.",
-    "Stadium Alpha": "Estadio con sectores conectados y espacios de combate interiores.",
-    "Stadium Bravo": "Estadio con áreas de transición, accesos laterales y líneas de tiro.",
-    "Theme Park": "Parque de atracciones con edificios conectados y múltiples rutas interiores.",
-    "Villa": "Villa de varios niveles con patios y amplias posibilidades de rotación vertical.",
-    "Close Quarter": "Entorno compacto de combate cercano; verificá la disponibilidad del plano para cada piso.",
-    "House": "Casa residencial con habitaciones pequeñas y accesos por ventanas y puertas.",
-    "Presidential Plane": "Avión de fuselaje estrecho con corredores largos y compartimentos reducidos.",
-    "Tower": "Torre con pasillos interiores y varios accesos a diferentes alturas.",
-    "Yacht": "Yate con pasillos estrechos, cubiertas y compartimentos interiores.",
+    "Calypso Casino": "Ubicado en el centro de Las Vegas, Casino Calypso rinde homenaje al legado de Rainbow Six: Vegas. Este mapa competitivo incluye elementos destructibles, rutas verticales para drones y una cámara en el sótano.",
+    "Chalet": "Un tiroteo en un chalet de esquí en los Alpes franceses. En esta zona contrastan el ambiente cálido y acogedor de los interiores con el frío y la poca visibilidad del exterior.",
+    "Bank": "Se ha llamado al equipo Rainbow para hacer una redada a un importante banco. El mapa propone un avance para los atacantes mientras se abren camino por áreas cada vez más fortificadas del edificio.",
+    "Kafe Dostoyevsky": "Este lujoso café en el centro de Moscú es la cumbre de la ostentación y el glamour, un territorio de intervención natural para las fuerzas Spetsnaz. La destrucción de sus decoraciones clásicas será clave.",
+    "Border": "El equipo Rainbow ayudará a las fuerzas locales a recuperar el control de la frontera. La combinación de edificios nuevos y antiguos, junto con caminos amplios, hace de este uno de los mapas más destructibles y abiertos.",
+    "Hereford Base": "Aquí es donde los agentes del SAS aprenden su oficio, en un laberinto de blancos de madera, bolsas de arena, alambre de púas y otros obstáculos. Es uno de los ejemplos más arquetípicos del juego de asedio.",
+    "Coastline": "El equipo Rainbow debe proteger la costa de Ibiza, España. Recorre las ruinas de las Baleares y sus bares para neutralizar el peligro. Prepárate para un flujo envolvente de combate y momentos de caos.",
+    "Consulado": "Un lugar fortificado de alto riesgo y seguridad; este mapa ilustra un asalto a un consulado francés en Costa de Marfil.",
+    "Clubhouse": "Este mapa ilustra un asalto a un club de una pandilla de motoristas. Con un bar completo, mesas de juego y muebles de piel, ofrece múltiples posibilidades tácticas en interiores y exteriores.",
+    "Oregon": "Oregon representa un asalto a un complejo fortificado de paramilitares. Su estilo rústico y ecléctico cubre un terreno amplio que exige adaptar las tácticas para despejarlo y mantenerlo.",
+    "Emerald Plains": "Conoce las onduladas montañas del norte de Irlanda en el club de campo y hacienda privada Praderas Esmeralda. Sus dos plantas contrastan una planta inferior moderna con el estilo clásico de una casa señorial.",
+    "Favela": "El equipo Rainbow ha sido llamado para recuperar el control de la Favela. El mapa permite destruir fachadas exteriores y combina calles coloridas y angostas con puntos de observación elevados.",
+    "Fortress": "Este enorme mapa diurno presenta una alcazaba de ladrillos de adobe y una arquitectura única del sur de Marruecos. La entrada principal recibe a los visitantes con dos torres y un arco monumental.",
+    "Kanal": "Kanal tiene lugar en el área industrial de Hamburgo, Alemania. Sus edificios están conectados por puentes sobre los canales y ofrecen numerosos puntos elevados y rutas estratégicas.",
+    "Lair": "La Guarida es un mapa competitivo de tres pisos con múltiples puntos de entrada y oportunidades de demolición. La verticalidad es clave: prepárate para flanqueos y ataques sorpresa.",
+    "Nighthaven Labs": "Los laboratorios de Nighthaven presentan muchos puntos de entrada e incursión, donde es difícil mantener una posición por mucho tiempo. Vigila los flanqueos en el cuartel general y el laboratorio de I+D.",
+    "Outback": "Ubicado en el corazón rojo de Australia, este mapa rinde homenaje a las estaciones de servicio polvorientas, los moteles de carreteras olvidadas y sus locales llenos de trabajadores y platos especiales.",
+    "Skyscraper": "El equipo Rainbow debe neutralizar una guerra Yakuza en las calles de Nagoya, Japón. En la cima del Skyscraper explorarás la arquitectura japonesa de una peligrosa mansión, entre modernidad y tradición.",
+    "Stadium Alpha": "MODO DE JUEGO: BOMBA. En el centro de la arena hay una casa de entrenamiento de combate compuesta por elementos de otros mapas. La versión rediseñada incorpora Coastline y Border, superficies destructibles señalizadas y cristales blindados.",
+    "Stadium Bravo": "MODO DE JUEGO: BOMBA. En el centro de la arena hay una casa de entrenamiento de combate compuesta por elementos de otros mapas. La versión rediseñada incorpora Coastline y Border, superficies destructibles señalizadas y cristales blindados.",
+    "Theme Park": "El equipo Rainbow debe asaltar un parque temático abandonado en las costas de Hong Kong. Prepárate para un perímetro complicado, colorido y ecléctico, lleno de enfrentamientos dinámicos.",
+    "Villa": "El territorio pertenece a los Vinciguerra, una peligrosa familia criminal conocida por el contrabando. Sus miembros huyeron antes de la redada, dejando la villa desordenada e información vital por obtener.",
+    "Close Quarter": "Entorno compacto de combate cercano; consulta los pisos disponibles y revisa el plano antes de elegir una ruta.",
+    "House": "Este escenario familiar tiene lugar en una casa suburbana típica. Es un buen ejemplo de destrucción vertical y rejugabilidad, y muestra claramente el estilo clásico del juego de asedio.",
+    "Presidential Plane": "El avión presidencial ofrece una experiencia de asedio exótica y única. Es claustrofóbico, tenso y restringido, con oportunidades de penetración y líneas de visión limitadas.",
+    "Tower": "Escala la nevada torre Mok Myeok para liderar una misión de rescate en Seúl, Corea del Sur. La torre de comunicaciones y observación ofrece puntos verticales y nuevas tácticas multinivel.",
+    "Yacht": "En la bahía de Baffin, un lujoso yate chocó contra un iceberg y sufrió una ruptura en el casco. El equipo Rainbow debe asegurar la embarcación varada, con un submarino no identificado cerca.",
 }
+
+
+MAP_DESCRIPTIONS.update({
+    "Clubhouse": "Este mapa ilustra un asalto a un club de una pandilla de motoristas. Con un bar completo, mesas de juego y muebles de piel, este diseño mixto en interiores y exteriores ofrece una amplia gama de posibilidades tácticas, tanto para el atacante como para el defensor.",
+    "Favela": "El equipo Rainbow ha sido llamado para llevar la paz y recuperar el control de la Favela. Este mapa permite destruir fachadas exteriores y combina calles coloridas y angostas con puntos de observación elevados, lo que lo convierte en el mapa más destructible hasta la fecha.",
+    "Fortress": "Este enorme mapa diurno presenta una alcazaba de ladrillos de adobe y una arquitectura única del sur de Marruecos. La imponente entrada principal recibe a los visitantes con dos torres y la frase Kasbah Sehkra Mania escrita en el arco.",
+    "Lair": "La Guarida es un mapa competitivo que, con sus tres pisos, múltiples puntos de entrada y oportunidades de demolición, hace de la verticalidad un punto clave. Prepárate para flanqueos en el Pasillo de la Armería o sorprende a tus enemigos infiltrándote en la sala R6.",
+    "Nighthaven Labs": "Los Laboratorios de Nighthaven son un mapa competitivo con muchos puntos de entrada e incursión, donde es complicado mantener una posición por mucho tiempo. Prepárate para flanqueos en el cuartel general o sorprende a tus enemigos irrumpiendo en el laboratorio de I+D.",
+    "Coastline": "El equipo Rainbow ha sido llamado para salvaguardar la costa de Ibiza, España. Recorre las ruinas de las Baleares y sus bares para neutralizar el peligro. Prepárate para un flujo envolvente de combate, aderezado con momentos de caos, mientras exploras un paraíso que acabó mal.",
+    "Outback": "Ubicado en el corazón rojo de Australia, este mapa es un homenaje a las estaciones de servicio polvorientas y a los moteles de carreteras olvidadas, así como a sus sitios llenos de trabajadores locales y platillos especiales que no encontrarás en ningún otro lugar.",
+    "Theme Park": "Se ha llamado al equipo Rainbow para hacer una redada en un parque temático abandonado en las costas de Hong Kong. Lidera una redada letal en este complicado perímetro. Prepárate para descubrir un mapa colorido y ecléctico, lleno de enfrentamientos dinámicos y de ritmo rápido.",
+    "Emerald Plains": "Conoce las onduladas montañas del norte de Irlanda en el club de campo y hacienda privada Praderas Esmeralda. Las dos plantas contrastan una moderna planta inferior con el estilo clásico de una casa señorial. Este contraste enfatiza los puntos de referencia para la comunicación y la orientación.",
+    "Tower": "Escala la nevada torre Mok Myeok para liderar una misión de rescate en Seúl, Corea del Sur. La moderna torre de comunicaciones y observación ofrece puntos verticales ventajosos, una vista aérea de la ciudad y nuevas tácticas multinivel.",
+    "Villa": "El territorio pertenece a los Vinciguerra, una peligrosa familia criminal conocida por el contrabando. Ahora capturamos la villa en una instantánea: están quemando documentos y transportando sus bienes antes de la redada. Se enteraron de la operación Para Bellum y huyeron, dejando información vital por obtener.",
+    "Stadium Alpha": "MODO DE JUEGO: BOMBA. En el centro de la arena hay una casa de entrenamiento de combate (kill house), compuesta por elementos de otros mapas. La versión rediseñada incorpora Coastline y Border. Sus superficies destructibles están señalizadas y los cristales blindados permiten observar al otro equipo de forma segura.",
+    "Stadium Bravo": "MODO DE JUEGO: BOMBA. En el centro de la arena hay una casa de entrenamiento de combate (kill house), compuesta por elementos de otros mapas. La versión rediseñada incorpora Coastline y Border. Sus superficies destructibles están señalizadas y los cristales blindados permiten observar al otro equipo de forma segura.",
+})
 
 FLOOR_LABELS = ["SÓTANO", "PRIMER PISO", "SEGUNDO PISO", "TEJADO"]
 FLOOR_KEYS = {
@@ -444,8 +506,8 @@ class R6Launcher(QMainWindow):
             QTimer.singleShot(0, self._resize_operator_detail)
         if (hasattr(self, "maps_stack") and self.stack.currentIndex() == 2
                 and self.maps_stack.currentIndex() == 1):
-            if getattr(self, "map_resource_pixmap", None) is not None:
-                QTimer.singleShot(0, self._resize_map_resource)
+            if getattr(self, "current_map_photo", None):
+                QTimer.singleShot(0, lambda: self._show_map_detail_image(self.current_map_photo, fill=True))
             elif hasattr(self, "current_info_map"):
                 QTimer.singleShot(0, lambda: self._update_map_floor_image(
                     self.current_info_map, self.current_floor_label,
@@ -464,36 +526,61 @@ class R6Launcher(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.addStretch(1)
 
+        nav_group = QWidget()
+        nav_group_layout = QVBoxLayout(nav_group)
+        nav_group_layout.setContentsMargins(0, 0, 0, 0)
+        nav_group_layout.setSpacing(0)
+        tabs_row = QHBoxLayout()
+        tabs_row.setContentsMargins(0, 0, 0, 0)
+        tabs_row.setSpacing(0)
+
         self.btn_tab_noticias = QPushButton("NOTICIAS")
         self.btn_tab_agentes = QPushButton("AGENTES")
         self.btn_tab_mapas = QPushButton("MAPAS")
         self.nav_btns = [self.btn_tab_noticias, self.btn_tab_agentes, self.btn_tab_mapas]
+        self.nav_indicators = []
         for index, button in enumerate(self.nav_btns):
-            button.setMinimumWidth(100)
-            button.setMinimumHeight(39)
+            tab = QWidget()
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(0)
+            indicator = QLabel()
+            indicator.setFixedSize(132, 9)
+            indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            indicator.setStyleSheet("background: transparent;")
+            button.setFixedSize(132, 48)
             button.clicked.connect(lambda _checked=False, i=index: self._on_tab_click(i))
-            row.addWidget(button)
-        row.addStretch(1)
-
-        search = QPushButton("⌕")
-        search.setToolTip("Buscar en el catálogo")
-        search.setFixedSize(34, 34)
-        search.setStyleSheet("QPushButton { background: transparent; border: none; color: #bfc4ca; font-size: 23px; } QPushButton:hover { color: #ffffff; }")
-        search.clicked.connect(self._focus_current_search)
-        row.addWidget(search)
-
-        gear = QPushButton("⚙")
-        gear.setToolTip("Ajustes y atajos")
-        gear.setFixedSize(34, 34)
-        gear.setStyleSheet("QPushButton { background: transparent; border: none; color: #bfc4ca; font-size: 19px; } QPushButton:hover { color: #ffffff; }")
-        gear.clicked.connect(self._open_settings)
-        row.addWidget(gear)
-        shell_layout.addLayout(row)
+            tab_layout.addWidget(indicator, 0, Qt.AlignmentFlag.AlignHCenter)
+            tab_layout.addWidget(button)
+            tabs_row.addWidget(tab)
+            self.nav_indicators.append(indicator)
+        nav_group_layout.addLayout(tabs_row)
 
         underline = QFrame()
         underline.setFixedHeight(2)
         underline.setStyleSheet(f"background: {ORANGE}; border: none;")
-        shell_layout.addWidget(underline)
+        nav_group_layout.addWidget(underline)
+        row.addWidget(nav_group)
+        row.addStretch(1)
+
+        search = QPushButton()
+        search.setToolTip("Buscar en el catálogo")
+        search.setFixedSize(44, 44)
+        search.setIcon(QIcon(SEARCH_ICON_IMAGE))
+        search.setIconSize(QSize(44, 36))
+        search.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0; }")
+        search.clicked.connect(self._focus_current_search)
+        row.addWidget(search)
+
+        gear = QPushButton()
+        gear.setToolTip("Ajustes y atajos")
+        gear.setFixedSize(48, 48)
+        gear.setIcon(QIcon(SETTINGS_ICON_IMAGE))
+        gear.setIconSize(QSize(48, 48))
+        gear.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0; }")
+        gear.clicked.connect(self._open_settings)
+        row.addWidget(gear)
+        shell_layout.addLayout(row)
         self.root_layout.addWidget(shell)
 
     def _active_document_page(self) -> QWidget | None:
@@ -568,10 +655,16 @@ class R6Launcher(QMainWindow):
         # Al cambiar de categoría se vuelve al inicio del único documento.
         self.global_scroll.verticalScrollBar().setValue(0)
         for i, button in enumerate(self.nav_btns):
+            indicator = self.nav_indicators[i]
             if i == index:
-                button.setStyleSheet(f"QPushButton {{ background: transparent; border: none; border-top: 2px solid {ORANGE}; color: #ffffff; font-size: 13px; font-weight: 900; padding: 6px 14px; border-radius: 0; }}")
+                pixmap = QPixmap(NAV_HIGHLIGHT_IMAGE) if os.path.isfile(NAV_HIGHLIGHT_IMAGE) else QPixmap()
+                indicator.setPixmap(pixmap.scaled(
+                    132, 9, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                ) if not pixmap.isNull() else QPixmap())
+                button.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: #ffffff; font-size: 24px; font-weight: 900; padding: 2px 6px; border-radius: 0; }}")
             else:
-                button.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: {MUTED}; font-size: 13px; font-weight: 800; padding: 6px 14px; }} QPushButton:hover {{ color: {GREEN}; }}")
+                indicator.clear()
+                button.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: {MUTED}; font-size: 24px; font-weight: 800; padding: 2px 6px; }} QPushButton:hover {{ color: {GREEN}; }}")
 
     def _init_landing_section(self):
         screen = self.screen() or QApplication.primaryScreen()
@@ -853,6 +946,10 @@ class R6Launcher(QMainWindow):
             title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             tile_layout.addWidget(preview)
+            shade = QWidget()
+            shade.setStyleSheet("background: rgba(5, 8, 12, 72);")
+            shade.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            tile_layout.addWidget(shade)
             tile_layout.addWidget(title)
             tile_layout.setCurrentWidget(title)
             bl = QVBoxLayout(button)
@@ -871,23 +968,23 @@ class R6Launcher(QMainWindow):
 
         self.map_detail_page = InfoBackground()
         self.map_view_layout = QVBoxLayout(self.map_detail_page)
-        self.map_view_layout.setContentsMargins(0, 5, 0, 0)
-        self.map_view_layout.setSpacing(12)
+        self.map_view_layout.setContentsMargins(0, 12, 0, 0)
+        self.map_view_layout.setSpacing(10)
         self.map_detail_page.setMinimumHeight(480)
         self.maps_stack.addWidget(self.map_detail_page)
         self.stack.addWidget(self.maps_stack)
 
     def _map_cover_pixmap(self, internal_name: str, size: QSize) -> QPixmap:
-        stem = MAP_RESOURCE_FILES.get(internal_name)
-        resource_path = os.path.join(RECURSOS_DIR, "mapas", f"{stem}.png") if stem else None
-        source = QPixmap(resource_path) if resource_path and os.path.isfile(resource_path) else QPixmap()
-        if not source.isNull():
-            x = int(source.width() * 0.10)
-            y = int(source.height() * 0.28)
-            crop_w = int(source.width() * 0.40)
-            crop_h = int(source.height() * 0.50)
-            source = source.copy(x, y, crop_w, crop_h)
-        else:
+        photo_paths = self._map_photo_paths(internal_name)
+        cover_name = MAP_PHOTO_COVERS.get(internal_name)
+        cover_path = next(
+            (path for path in photo_paths if os.path.basename(path).casefold() == (cover_name or "").casefold()),
+            photo_paths[0] if photo_paths else None,
+        )
+        source = QPixmap(cover_path) if cover_path else QPixmap()
+        if source.isNull():
+            source = QPixmap()
+        if source.isNull():
             preview_path = self._find_map_preview(internal_name)
             source = QPixmap(preview_path) if preview_path else QPixmap()
         if source.isNull():
@@ -896,6 +993,37 @@ class R6Launcher(QMainWindow):
         x = max(0, (scaled.width() - size.width()) // 2)
         y = max(0, (scaled.height() - size.height()) // 2)
         return scaled.copy(x, y, min(size.width(), scaled.width()), min(size.height(), scaled.height()))
+
+    def _map_photo_paths(self, internal_name: str) -> list[str]:
+        prefixes = MAP_PHOTO_PREFIXES.get(internal_name, ())
+        if not prefixes or not os.path.isdir(MAP_PHOTOS_DIR):
+            return []
+        normalized_prefixes = tuple("".join(ch for ch in prefix.casefold() if ch.isalnum()) for prefix in prefixes)
+        matches = []
+        for filename in os.listdir(MAP_PHOTOS_DIR):
+            if not filename.casefold().endswith(".png"):
+                continue
+            stem = os.path.splitext(filename)[0]
+            normalized_stem = "".join(ch for ch in stem.casefold() if ch.isalnum())
+            if any(normalized_stem.startswith(prefix) for prefix in normalized_prefixes):
+                matches.append(os.path.join(MAP_PHOTOS_DIR, filename))
+
+        def photo_order(path: str):
+            stem = os.path.splitext(os.path.basename(path))[0]
+            normalized_stem = "".join(ch for ch in stem.casefold() if ch.isalnum())
+            is_base = normalized_stem in normalized_prefixes
+            number = re.search(r"(\d+)(?:\D*)$", stem)
+            return (0 if is_base else 1, int(number.group(1)) if number else 999, stem.casefold())
+
+        return sorted(matches, key=photo_order)
+
+    def _map_photo_for_detail(self, internal_map: str, photo_paths: list[str]) -> str | None:
+        preferred = MAP_DETAIL_PHOTOS.get(internal_map) or MAP_PHOTO_COVERS.get(internal_map)
+        if preferred:
+            for path in photo_paths:
+                if os.path.basename(path).casefold() == preferred.casefold():
+                    return path
+        return photo_paths[0] if photo_paths else None
 
     def _find_map_preview(self, internal_name: str) -> str | None:
         for floor in ("Primer Piso", "Segundo Piso", "Sotano", "Tejado", "Piso Extra"):
@@ -908,30 +1036,8 @@ class R6Launcher(QMainWindow):
         clear_layout(self.map_view_layout)
         self.current_info_map = internal_map
         display_name = MAP_DISPLAY_NAMES.get(internal_map, internal_map)
-        self.map_resource_pixmap = None
-        self.map_resource_label = None
-
-        resource_stem = MAP_RESOURCE_FILES.get(internal_map)
-        resource_path = os.path.join(RECURSOS_DIR, "mapas", f"{resource_stem}.png") if resource_stem else None
-        resource_pixmap = QPixmap(resource_path) if resource_path and os.path.isfile(resource_path) else QPixmap()
-        if not resource_pixmap.isNull():
-            # Los PNG de recursos incluyen la composición completa. Se recorta
-            # su cabecera para conservar la navegación nativa del launcher.
-            top_crop = min(220, max(0, resource_pixmap.height() - 1))
-            self.map_resource_pixmap = resource_pixmap.copy(
-                0, top_crop, resource_pixmap.width(), resource_pixmap.height() - top_crop,
-            )
-            self.map_resource_label = QLabel()
-            self.map_resource_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.map_resource_label.setStyleSheet("background: transparent;")
-            self.map_resource_label.setMinimumSize(600, 380)
-            self.map_resource_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            self.map_view_layout.addWidget(self.map_resource_label, 1)
-            self._resize_map_resource()
-            self.maps_stack.setCurrentIndex(1)
-            self._sync_global_scroll_document()
-            return
-
+        self.map_photo_paths = self._map_photo_paths(internal_map)
+        self.current_map_photo = self._map_photo_for_detail(internal_map, self.map_photo_paths)
         self.floor_buttons: dict[str, QPushButton] = {}
         self.floor_thumbnails: dict[str, QPushButton] = {}
 
@@ -940,50 +1046,54 @@ class R6Launcher(QMainWindow):
         for floor_label in FLOOR_LABELS:
             button = QPushButton(FLOOR_KEYS.get(floor_label, floor_label).upper())
             button.setFlat(True)
-            button.setStyleSheet("QPushButton { background: transparent; color: white; border: none; border-bottom: 2px solid transparent; padding: 5px 9px; font-size: 14px; font-weight: 700; } QPushButton:hover { color: #a3e600; }")
+            button.setStyleSheet("QPushButton { background: transparent; color: white; border: none; border-bottom: 2px solid transparent; padding: 7px 15px; font-size: 27px; font-weight: 700; } QPushButton:hover { color: #a3e600; }")
             button.clicked.connect(lambda _checked=False, m=internal_map, fl=floor_label: self._update_map_floor_image(m, fl))
             self.floor_buttons[floor_label] = button
             header.addWidget(button)
         self.map_view_layout.addLayout(header)
 
         body = QHBoxLayout()
-        body.setSpacing(24)
+        body.setSpacing(10)
         left = QVBoxLayout()
-        left.setSpacing(10)
+        left.setSpacing(8)
         self.lbl_plan_img = QLabel("Plano no disponible")
         self.lbl_plan_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_plan_img.setMinimumSize(380, 250)
+        self.lbl_plan_img.setMinimumSize(500, 350)
+        self.lbl_plan_img.setMaximumSize(740, 510)
         self.lbl_plan_img.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.lbl_plan_img.setStyleSheet("background: rgba(8, 10, 14, 210); border: 1px solid #333945; color: #8b95a7; padding: 4px;")
         left.addWidget(self.lbl_plan_img, 1)
 
-        thumbnails = QHBoxLayout()
-        thumbnails.setSpacing(8)
-        for floor_label in FLOOR_LABELS:
-            floor_key = FLOOR_KEYS.get(floor_label, "Primer Piso")
-            path = get_map_image_path(internal_map, floor_key)
-            if not path or not os.path.isfile(path):
-                continue
-            thumb = QPushButton()
-            thumb.setFixedSize(94, 62)
-            thumb.setStyleSheet("QPushButton { background: #10141b; border: 1px solid #454b55; padding: 2px; } QPushButton:hover { border: 2px solid #a3e600; }")
-            thumb_layout = QVBoxLayout(thumb)
-            thumb_layout.setContentsMargins(2, 2, 2, 2)
-            preview = QLabel()
-            preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            pix = QPixmap(path)
-            if not pix.isNull():
-                preview.setPixmap(pix.scaled(86, 54, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-            thumb_layout.addWidget(preview)
-            thumb.clicked.connect(lambda _checked=False, m=internal_map, fl=floor_label: self._update_map_floor_image(m, fl))
-            self.floor_thumbnails[floor_label] = thumb
-            thumbnails.addWidget(thumb)
-        thumbnails.addStretch(1)
-        left.addLayout(thumbnails)
-        body.addLayout(left, 5)
+        self.map_gallery_layout = QHBoxLayout()
+        self.map_gallery_layout.setSpacing(10)
+        if self.map_photo_paths:
+            self._refresh_map_photo_thumbnails()
+        else:
+            for floor_label in FLOOR_LABELS:
+                floor_key = FLOOR_KEYS.get(floor_label, "Primer Piso")
+                path = get_map_image_path(internal_map, floor_key)
+                if not path or not os.path.isfile(path):
+                    continue
+                thumb = QPushButton()
+                thumb.setFixedSize(138, 80)
+                thumb.setStyleSheet("QPushButton { background: #10141b; border: 1px solid #454b55; padding: 2px; } QPushButton:hover { border: 2px solid #a3e600; }")
+                thumb_layout = QVBoxLayout(thumb)
+                thumb_layout.setContentsMargins(2, 2, 2, 2)
+                preview = QLabel()
+                preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                pix = QPixmap(path)
+                if not pix.isNull():
+                    preview.setPixmap(pix.scaled(130, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                thumb_layout.addWidget(preview)
+                thumb.clicked.connect(lambda _checked=False, m=internal_map, fl=floor_label: self._update_map_floor_image(m, fl))
+                self.floor_thumbnails[floor_label] = thumb
+                self.map_gallery_layout.addWidget(thumb)
+            self.map_gallery_layout.addStretch(1)
+        left.addLayout(self.map_gallery_layout)
+        body.addLayout(left, 4)
 
         right = QHBoxLayout()
-        right.setSpacing(18)
+        right.setSpacing(8)
         description_text = MAP_DESCRIPTIONS.get(internal_map, "Mapa competitivo de Rainbow Six Siege.")
         if internal_map == "Calypso Casino":
             description_text = (
@@ -993,27 +1103,19 @@ class R6Launcher(QMainWindow):
                 "de la azotea, recaba informacion por los conductos de dron verticales y usa demoliciones hasta "
                 "llegar a la camara del sotano."
             )
-        description = label(description_text, color="#eceef1", size=13, wrap=True)
-        description.setMinimumWidth(180)
-        description.setMaximumWidth(360)
+        description = label(description_text, color="#eceef1", size=27, wrap=True)
+        description.setMinimumWidth(340)
+        description.setMaximumWidth(500)
         right.addWidget(description, 3, Qt.AlignmentFlag.AlignTop)
 
-        references = QFrame()
-        references.setMinimumWidth(188)
-        references.setMaximumWidth(220)
-        references.setStyleSheet("QFrame { background: #78b800; border: 1px solid #a3e600; border-radius: 7px; color: #10150a; }")
-        ref_layout = QVBoxLayout(references)
-        ref_layout.setContentsMargins(10, 8, 10, 8)
-        ref_layout.setSpacing(1)
-        ref_layout.addWidget(label("REFERENCIAS", color="#10150a", size=15, bold=True))
-        for icon, text in [(chr(0x25a7), "Paredes destructibles"), (chr(0x25a6), "Trampillas de techo"), (chr(0x25cf), "Camaras de seguridad"), (chr(0x2195), "Escaleras"), (chr(0x25a4), "Trampillas"), (chr(0x25c9), "Claraboya"), (chr(0x25c6), "Punto de aparicion"), ("A/B", "Objetivos")]:
-            line = QHBoxLayout()
-            marker = label(icon, color="#10150a", size=12, bold=True)
-            marker.setFixedWidth(22)
-            line.addWidget(marker)
-            line.addWidget(label(text, color="#10150a", size=10, bold=True, wrap=True), 1)
-            ref_layout.addLayout(line)
-        ref_layout.addStretch(1)
+        reference_art = QPixmap(MAP_REFERENCES_IMAGE) if os.path.isfile(MAP_REFERENCES_IMAGE) else QPixmap()
+        references = QLabel()
+        references.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if not reference_art.isNull():
+            references.setPixmap(reference_art.scaled(
+                300, 392, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+            ))
+        references.setFixedSize(300, 392)
         right.addWidget(references, 2, Qt.AlignmentFlag.AlignTop)
         body.addLayout(right, 5)
         self.map_view_layout.addLayout(body, 1)
@@ -1024,36 +1126,91 @@ class R6Launcher(QMainWindow):
         self.map_view_layout.addWidget(separator)
         title_row = QHBoxLayout()
         title_row.addStretch(1)
-        title_row.addWidget(label(display_name.upper(), color=ORANGE, size=25, bold=True))
+        title_row.addWidget(label(display_name.upper(), color=ORANGE, size=46, bold=True))
         self.map_view_layout.addLayout(title_row)
-        self.map_detail_page.setMinimumHeight(480)
-        self._update_map_floor_image(internal_map, "PRIMER PISO")
+        self.map_detail_page.setMinimumHeight(660)
+        self.current_floor_label = "PRIMER PISO"
+        self._sync_map_floor_buttons(self.current_floor_label)
+        if self.current_map_photo:
+            self._show_map_detail_image(self.current_map_photo, fill=True)
+        else:
+            self._update_map_floor_image(internal_map, self.current_floor_label)
         self.maps_stack.setCurrentIndex(1)
         self._sync_global_scroll_document()
+        if self.current_map_photo:
+            QTimer.singleShot(0, lambda p=self.current_map_photo: self._show_map_detail_image(p, fill=True))
+        else:
+            QTimer.singleShot(0, lambda m=internal_map, f=self.current_floor_label: self._update_map_floor_image(m, f))
 
-    def _resize_map_resource(self):
-        if self.map_resource_pixmap is None or self.map_resource_label is None:
+    def _show_map_detail_image(self, path: str, *, fill: bool = False):
+        if not hasattr(self, "lbl_plan_img") or not path:
             return
-        target_width = max(600, self.width() - 72)
-        target_height = max(380, self.stack.height() - 16)
-        self.map_resource_label.setPixmap(self.map_resource_pixmap.scaled(
-            target_width, target_height,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        ))
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return
+        width = max(360, self.lbl_plan_img.width() - 10)
+        height = max(260, self.lbl_plan_img.height() - 10)
+        mode = (Qt.AspectRatioMode.KeepAspectRatioByExpanding if fill
+                else Qt.AspectRatioMode.KeepAspectRatio)
+        pixmap = pixmap.scaled(width, height, mode, Qt.TransformationMode.SmoothTransformation)
+        if fill:
+            x = max(0, (pixmap.width() - width) // 2)
+            y = max(0, (pixmap.height() - height) // 2)
+            pixmap = pixmap.copy(x, y, width, height)
+        self.lbl_plan_img.setPixmap(pixmap)
+        self.lbl_plan_img.setText("")
+
+    def _show_map_photo(self, path: str):
+        self.current_map_photo = path
+        self._show_map_detail_image(path, fill=True)
+        self._refresh_map_photo_thumbnails()
+
+    def _refresh_map_photo_thumbnails(self):
+        if not hasattr(self, "map_gallery_layout"):
+            return
+        clear_layout(self.map_gallery_layout)
+        for path in self.map_photo_paths:
+            if path == self.current_map_photo:
+                continue
+            thumb = QPushButton()
+            thumb.setFixedSize(138, 80)
+            thumb.setStyleSheet(
+                f"QPushButton {{ background: #10141b; border: 1px solid {BORDER}; padding: 2px; }} "
+                f"QPushButton:hover {{ border: 2px solid {ORANGE}; }}"
+            )
+            thumb_layout = QVBoxLayout(thumb)
+            thumb_layout.setContentsMargins(2, 2, 2, 2)
+            preview = QLabel()
+            preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            pixmap = QPixmap(path)
+            if not pixmap.isNull():
+                preview.setPixmap(pixmap.scaled(
+                    130, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                ))
+            preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            thumb_layout.addWidget(preview)
+            thumb.clicked.connect(lambda _checked=False, p=path: self._show_map_photo(p))
+            self.map_gallery_layout.addWidget(thumb)
+        self.map_gallery_layout.addStretch(1)
+
+    def _sync_map_floor_buttons(self, floor_label: str):
+        for name, button in getattr(self, "floor_buttons", {}).items():
+            active = name == floor_label
+            button.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {'#a3e600' if active else 'white'}; "
+                f"border: none; border-bottom: 2px solid {'#ff8a00' if active else 'transparent'}; "
+                "padding: 7px 15px; font-size: 27px; font-weight: 800; }"
+            )
 
     def _update_map_floor_image(self, internal_map: str, floor_label: str):
         if not hasattr(self, "floor_buttons") or not hasattr(self, "lbl_plan_img"):
             return
         self.current_info_map = internal_map
         self.current_floor_label = floor_label
-        for name, button in self.floor_buttons.items():
-            active = name == floor_label
-            button.setStyleSheet(
-                f"QPushButton {{ background: transparent; color: {'#a3e600' if active else 'white'}; "
-                f"border: none; border-bottom: 2px solid {'#ff8a00' if active else 'transparent'}; "
-                "padding: 5px 9px; font-size: 14px; font-weight: 800; }"
-            )
+        self.current_map_photo = None
+        if self.map_photo_paths:
+            self._refresh_map_photo_thumbnails()
+        self._sync_map_floor_buttons(floor_label)
         for name, button in getattr(self, "floor_thumbnails", {}).items():
             button.setStyleSheet(
                 f"QPushButton {{ background: #10141b; border: 2px solid {'#ff8a00' if name == floor_label else '#454b55'}; padding: 1px; }}"
