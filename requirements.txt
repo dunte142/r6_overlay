@@ -1,0 +1,14 @@
+PyQt6==6.7.1
+mss==10.2.0
+numpy==1.26.4
+PyAudioWPatch==0.2.12.9
+keyboard==0.13.5
+opencv-python==4.10.0.84
+pytesseract==0.3.13
+
+# Opcional, para clasificación de audio (pasos/disparos/explosiones)
+# tensorflow==2.16.1
+# tensorflow-hub==0.16.1
+
+# Opcional, para detección visual (fase de drones) una vez que entrenes tu modelo
+# ultralytics==8.2.0

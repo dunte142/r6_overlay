@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+overlay_log.txt
+faulthandler_dump.txt
+*.tmp
+.concord/
+.venv/
+venv/
+build/
+dist/
