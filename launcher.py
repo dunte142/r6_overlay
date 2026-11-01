@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QGridLayout, QStackedWidget,
     QFrame, QMessageBox, QDialog, QSizePolicy, QSpacerItem, QInputDialog, QBoxLayout, QLayout, QStackedLayout,
+    QTextBrowser,
 )
 
 from data.gadgets import OPERATOR_INFO
@@ -31,7 +32,7 @@ MAP_REFERENCES_IMAGE = os.path.join(RECURSOS_DIR, "mapas_hud", "referencias.png"
 NAV_HIGHLIGHT_IMAGE = os.path.join(RECURSOS_DIR, "resaltar.png")
 SEARCH_ICON_IMAGE = os.path.join(ASSETS_DIR, "lupa.png")
 SETTINGS_ICON_IMAGE = os.path.join(ASSETS_DIR, "tuerca.png")
-INFO_BACKGROUND = os.path.join(ASSETS_DIR, "fondo_info.png")
+INFO_BACKGROUND = os.path.join(RECURSOS_DIR, "TEXTURA FONDO APP.png")
 
 BG = "#0c0f17"
 PANEL = "#141a24"
@@ -152,6 +153,35 @@ ATTACKER_HOME_ICONS = {
     "Amaru": 1565, "Grim": 1566, "Glaz": 1567, "Fuze": 1568,
     "IQ": 1569, "Blitz": 1570, "Twitch": 1571,
 }
+
+# Los nombres impresos en cada PNG determinan la correspondencia con el operador.
+DEFENDER_HOME_ICONS = {
+    "Noor": 1493, "Denari": 1494, "Skopos": 1495, "Sentry": 1496,
+    "Tubarao": 1497, "Fenrir": 1498, "Solis": 1499, "Azami": 1500,
+    "Thorn": 1501, "Thunderbird": 1502, "Maestro": 1503, "Clash": 1504,
+    "Kaid": 1505, "Mozzie": 1506, "Warden": 1507, "Goyo": 1508,
+    "Wamai": 1509, "Oryx": 1510, "Melusi": 1511, "Aruni": 1512,
+    "Alibi": 1513, "Vigil": 1514, "Ela": 1515, "Lesion": 1516,
+    "Mira": 1572, "Echo": 1573, "Caveira": 1574, "Valkyrie": 1575,
+    "Frost": 1576, "Mute": 1577, "Bandit": 1578, "Kapkan": 1579,
+    "Tachanka": 1580, "Jager": 1581, "Rook": 1582, "Doc": 1583,
+    "Pulse": 1584, "Castle": 1585, "Smoke": 1586,
+}
+
+DEFENDER_HOME_ORDER = [
+    "Noor", "Denari", "Skopos", "Sentry", "Tubarao", "Fenrir", "Solis", "Azami",
+    "Thorn", "Thunderbird", "Aruni", "Melusi", "Oryx", "Wamai", "Goyo", "Warden",
+    "Mozzie", "Kaid", "Clash", "Maestro", "Alibi", "Vigil", "Ela", "Lesion",
+    "Mira", "Echo", "Caveira", "Valkyrie", "Frost", "Mute", "Smoke", "Castle",
+    "Pulse", "Doc", "Rook", "Jager", "Tachanka", "Kapkan", "Bandit",
+]
+ATTACKER_HOME_ORDER = [
+    "Solid Snake", "Rauora", "Striker", "Deimos", "Ram", "Brava", "Sens", "Osa",
+    "Flores", "Zero", "Ace", "Kali", "Nokk", "Nomad", "Maverick", "Lion",
+    "Finka", "Dokkaebi", "Zofia", "Ying", "Jackal", "Hibana", "Capitao",
+    "Blackbeard", "Buck", "Sledge", "Thatcher", "Ash", "Thermite", "Montagne",
+    "Twitch", "Blitz", "IQ", "Fuze", "Glaz", "Grim", "Amaru", "Iana", "Gridlock",
+]
 
 MAP_DESCRIPTIONS = {
     "Calypso Casino": "Ubicado en el centro de Las Vegas, Casino Calypso rinde homenaje al legado de Rainbow Six: Vegas. Este mapa competitivo incluye elementos destructibles, rutas verticales para drones y una cámara en el sótano.",
@@ -499,8 +529,13 @@ class R6Launcher(QMainWindow):
         if hasattr(self, "hero_banner"):
             self.hero_banner.setFixedHeight(self._hero_height())
         super().resizeEvent(event)
+        if hasattr(self, "nav_group"):
+            self.nav_group.setFixedWidth(max(440, (self.width() - 32) // 2))
         if hasattr(self, "stack"):
             QTimer.singleShot(0, self._sync_global_scroll_document)
+        if (hasattr(self, "news_stack") and self.stack.currentIndex() == 0
+                and self.news_stack.currentIndex() == 1):
+            QTimer.singleShot(0, self._resize_first_news_detail)
         if (hasattr(self, "agents_stack") and self.stack.currentIndex() == 1
                 and self.agents_stack.currentIndex() == 1):
             QTimer.singleShot(0, self._resize_operator_detail)
@@ -527,6 +562,8 @@ class R6Launcher(QMainWindow):
         row.addStretch(1)
 
         nav_group = QWidget()
+        nav_group.setFixedWidth(max(440, (self.width() - 32) // 2))
+        self.nav_group = nav_group
         nav_group_layout = QVBoxLayout(nav_group)
         nav_group_layout.setContentsMargins(0, 0, 0, 0)
         nav_group_layout.setSpacing(0)
@@ -554,6 +591,15 @@ class R6Launcher(QMainWindow):
             tab_layout.addWidget(button)
             tabs_row.addWidget(tab)
             self.nav_indicators.append(indicator)
+        tabs_row.addStretch(1)
+        search = QPushButton()
+        search.setToolTip("Buscar en el catálogo")
+        search.setFixedSize(44, 44)
+        search.setIcon(QIcon(SEARCH_ICON_IMAGE))
+        search.setIconSize(QSize(44, 36))
+        search.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0; }")
+        search.clicked.connect(self._focus_current_search)
+        tabs_row.addWidget(search)
         nav_group_layout.addLayout(tabs_row)
 
         underline = QFrame()
@@ -563,23 +609,6 @@ class R6Launcher(QMainWindow):
         row.addWidget(nav_group)
         row.addStretch(1)
 
-        search = QPushButton()
-        search.setToolTip("Buscar en el catálogo")
-        search.setFixedSize(44, 44)
-        search.setIcon(QIcon(SEARCH_ICON_IMAGE))
-        search.setIconSize(QSize(44, 36))
-        search.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0; }")
-        search.clicked.connect(self._focus_current_search)
-        row.addWidget(search)
-
-        gear = QPushButton()
-        gear.setToolTip("Ajustes y atajos")
-        gear.setFixedSize(48, 48)
-        gear.setIcon(QIcon(SETTINGS_ICON_IMAGE))
-        gear.setIconSize(QSize(48, 48))
-        gear.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0; }")
-        gear.clicked.connect(self._open_settings)
-        row.addWidget(gear)
         shell_layout.addLayout(row)
         self.root_layout.addWidget(shell)
 
@@ -641,7 +670,11 @@ class R6Launcher(QMainWindow):
     def _on_tab_click(self, index: int):
         # Volver al grid de la pestaña elegida; el encabezado y la barra no se
         # reconstruyen, solo cambia el contenido del panel central.
-        if index == 1 and hasattr(self, "agents_stack"):
+        if index == 0 and hasattr(self, "news_stack"):
+            self.news_stack.setCurrentIndex(0)
+            self.news_detail_page.setMinimumHeight(0)
+            self.news_detail_page.setMaximumHeight(16777215)
+        elif index == 1 and hasattr(self, "agents_stack"):
             self.agents_stack.setCurrentIndex(0)
         elif index == 2 and hasattr(self, "maps_stack"):
             self.maps_stack.setCurrentIndex(0)
@@ -667,10 +700,10 @@ class R6Launcher(QMainWindow):
                 button.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: {MUTED}; font-size: 24px; font-weight: 800; padding: 2px 6px; }} QPushButton:hover {{ color: {GREEN}; }}")
 
     def _init_landing_section(self):
-        screen = self.screen() or QApplication.primaryScreen()
-        reference_width = screen.availableGeometry().width() if screen else self.width()
-        page = QWidget()
-        page.setStyleSheet("background: #000000;")
+        reference_width = max(900, self.width())
+        self.news_stack = QStackedWidget()
+        self.news_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        page = InfoBackground()
         page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 78, 0, 0)
@@ -690,10 +723,77 @@ class R6Launcher(QMainWindow):
 
         tile_height = max(140, min(220, int(reference_width * 0.11)))
         for index in range(4):
-            tile = QFrame()
+            tile = QPushButton() if index == 0 else QFrame()
             tile.setFixedHeight(tile_height)
             tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            tile.setStyleSheet("QFrame { background: #d8d8d8; border: none; }")
+            if index == 0:
+                tile.setCursor(Qt.CursorShape.PointingHandCursor)
+            if index in (0, 1, 2, 3):
+                tile.setStyleSheet(
+                    "QPushButton { background: transparent; border: none; padding: 0; text-align: left; } "
+                    "QPushButton:hover { background: rgba(255, 255, 255, 12); }"
+                    if index == 0 else "QFrame { background: transparent; border: none; }"
+                )
+                tile_layout = QHBoxLayout(tile)
+                tile_layout.setContentsMargins(0, 0, 0, 0)
+                tile_layout.setSpacing(12)
+
+                article_image = QLabel()
+                article_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                image_width = max(150, min(round(tile_height * 1.45), round(reference_width * 0.14)))
+                image_height = max(100, tile_height - 16)
+                article_image.setFixedSize(image_width, image_height)
+                image_path = os.path.join(
+                    RECURSOS_DIR, "noticias",
+                    "-R6S-_Y11S3.2_Mid-Season_Designer-s_Notes_-_MIDSEASON_DESIGNER_NOTES_Y11S3_960x540.png"
+                    if index == 0 else "Y11S3_PATCHNOTES_MIDSEASON_960x540.png"
+                    if index == 1 else "R6S_DOKT7_Keyart_16_9_4K_Final.png"
+                    if index == 2 else "R6S_Y11S3_Wasteland_Drops_BadgeAndSkin_960.png",
+                )
+                pixmap = QPixmap(image_path) if os.path.isfile(image_path) else QPixmap()
+                if not pixmap.isNull():
+                    article_image.setPixmap(pixmap.scaled(
+                        image_width, image_height,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    ))
+                article_image.setStyleSheet("background: transparent;")
+                article_image.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                tile_layout.addWidget(article_image, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                article_copy = QVBoxLayout()
+                article_copy.setContentsMargins(0, 0, 0, 0)
+                article_copy.setSpacing(4)
+                if index == 0:
+                    date_text = "15/10/2026"
+                    title_text = "NOTAS SOBRE EL DISEÑO: ACTUALIZACIÓN A MITAD DE TEMPORADA DEL Y11S3"
+                    summary_text = "En la última edición de nuestras Notas sobre el diseño vamos a adentrarnos en los cambios de equilibrio que presentamos en la actualización a mitad de temporada del Y11S3."
+                elif index == 1:
+                    date_text = "13/10/2026"
+                    title_text = "Y11S3.2 PATCH NOTES"
+                    summary_text = "Ve los próximos cambios del Rainbow Six Siege con la llegada de la versión Y11S3.2."
+                elif index == 2:
+                    date_text = "14/10/2026"
+                    title_text = "¡DOKTOR'S CURSE VUELVE HASTA EL 2 DE NOVIEMBRE!"
+                    summary_text = "Doktor's Curse vuelve del 15 de octubre al 2 de noviembre. Elige un bando en el emblemático modo del escondite y enfréntate al caos que acecha dentro del laboratorio perverso del Doktor."
+                else:
+                    date_text = "23/9/2026"
+                    title_text = "¡TWITCH DROP E INSIGNIA NUEVOS, DISPONIBLES DURANTE EL EVENTO WASTELAND CIRCUIT!"
+                    summary_text = "¡Preparaos, pilotos de drones! Desbloquead estas recompensas exclusivas en Twitch para conmemorar el primer evento de carreras de drones de Siege. Aquí está toda la información necesaria para reclamar el botín antes de que la polvareda se asiente."
+                date_label = label(date_text, color="#FFFFFF", size=11)
+                title_label = label(title_text, color="#B8E833", size=17, bold=True, wrap=True)
+                summary_label = label(summary_text, color="#FFFFFF", size=13, wrap=True)
+                for text_label in (date_label, title_label, summary_label):
+                    text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                article_copy.addWidget(date_label)
+                article_copy.addWidget(title_label)
+                article_copy.addWidget(summary_label)
+                article_copy.addStretch(1)
+                tile_layout.addLayout(article_copy, 1)
+                if index == 0:
+                    tile.clicked.connect(self._show_first_news_detail)
+            else:
+                tile.setStyleSheet("QFrame { background: #d8d8d8; border: none; }")
             grid.addWidget(tile, index // 2, index % 2)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
@@ -709,7 +809,130 @@ class R6Launcher(QMainWindow):
         layout.addStretch(1)
 
         page.setMinimumHeight(660)
-        self.stack.addWidget(page)
+        self.news_stack.addWidget(page)
+
+        self.news_detail_page = InfoBackground()
+        self.news_detail_page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        detail_layout = QHBoxLayout(self.news_detail_page)
+        detail_layout.setContentsMargins(20, 16, 20, 16)
+        detail_layout.setSpacing(28)
+        self.news_detail_image = QLabel()
+        self.news_detail_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.news_detail_image.setStyleSheet("background: transparent;")
+        self.news_detail_image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.news_detail_text = QTextBrowser()
+        self.news_detail_text.setOpenExternalLinks(False)
+        self.news_detail_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.news_detail_text.setStyleSheet(
+            "QTextBrowser { background: transparent; border: none; color: #FFFFFF; "
+            "font-family: 'Barlow Condensed', 'Segoe UI', sans-serif; font-size: 18px; }"
+        )
+        detail_layout.addWidget(self.news_detail_image, 4)
+        detail_layout.addWidget(self.news_detail_text, 6)
+        self.news_stack.addWidget(self.news_detail_page)
+        self.stack.addWidget(self.news_stack)
+
+    def _show_first_news_detail(self):
+        self.hero_banner.hide()
+        self.compact_header.show()
+        self.top_panel_host.layout().activate()
+        self.root_layout.activate()
+        self._resize_first_news_detail()
+        self.news_detail_text.setHtml("""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body { color: #FFFFFF; font-family: 'Barlow Condensed', 'Segoe UI', sans-serif; font-size: 18px; }
+h1 { color: #FF8707; font-size: 30px; font-weight: 700; margin: 0 0 18px 0; }
+h2 { color: #FFFFFF; font-size: 22px; font-weight: 500; margin: 18px 0 8px 0; }
+h3 { color: #FFFFFF; font-size: 21px; font-weight: 600; margin: 14px 0 3px 0; }
+p { color: #FFFFFF; font-size: 18px; margin: 0 0 12px 0; }
+ul { color: #FFFFFF; font-size: 18px; margin: 2px 0 12px 0; padding-left: 24px; }
+li { margin-bottom: 5px; }
+</style></head><body>
+<h1>AJUSTES DE EQUILIBRIO DE AGENTES</h1>
+<h2>SEGUIMIENTO DEL LANZAMIENTO</h2>
+<h3>NOOR</h3>
+<p>La habilidad de Noor se quedaba corta en distintos aspectos, así que va a recibir algunos cambios de seguimiento para aumentar sus capacidades de contrarrestar con escudos y su supervivencia. El disparalanzas Horus recibirá varias mejoras para que su habilidad sea más proactiva y dura contra los agentes con escudos antibalas cuando cometen errores de posicionamiento, pero también más gratificante para el riesgo que asume Noor mientras lleva equipado el lanzador.</p>
+<h3>DISPARALANZAS HORUS</h3>
+<ul>
+<li>Se reduce el tiempo de perforación de escudos antibalas, superficies débiles y superficies sólidas (superficies no destruibles) a 1,5 s (antes 2 s).</li>
+<li>La resistencia de rotura de guardia de los impactos de proyectil contra los agentes con escudos antibalas aumenta al 100 % (antes 30 %).</li>
+<li>Se reduce el tiempo de las animaciones rápidas al equipar el disparalanzas Horus a 0,4 s (antes 0,9 s).</li>
+<li>Aumenta el daño de impacto de la lanza Horus contra los agentes a 80 (antes 50).</li>
+<li>Se actualiza la caja de golpe de la lanza Horus para mejorar la precisión y la estabilidad.</li>
+<li>La lanza Horus inflige daño a los agentes con escudo antibalas que están haciendo la animación para quitárselo.</li>
+</ul>
+<h2>CAMBIOS IMPORTANTES</h2>
+<h3>TACHANKA</h3>
+<p>El lanzador Shumikha de Tachanka depende de los proyectiles que rebotan para soltar fuego. Aunque esto le permite ejercer presión sin exponerse al fuego enemigo, llega a ser difícil de controlar en las situaciones que requieren precisión. Además, el retraso que provoca la mecánica de rebote reduce la capacidad de respuesta, algo elemental en los enfrentamientos rápidos donde las diferencias más pequeñas de tiempos determinan el resultado de la ronda.</p>
+<p>Por tanto, queremos reducir la habilidad necesaria de uso eficaz del dispositivo para así mejorar la utilidad y la capacidad de respuesta del lanzador Shumikha. Al mismo tiempo, se ofrecerá a los jugadores mayor control y adaptabilidad en función de la situación.</p>
+<p>Al introducir un modo que se activa con los impactos, Tachanka responderá con mayor eficacia en los momentos precisos o en los que el tiempo es un factor importante. Esto mejorará la fiabilidad cuando se atacan posiciones concretas o se reacciona al movimiento rival. Del mismo modo, conservar el rebote preserva su capacidad de establecer un bloqueo a capas y un control del espacio de forma indirecta. La elección entre los 2 modos permite una mejor adaptabilidad y permite que los jugadores elijan el método más apropiado en función de la situación.</p>
+<h3>LANZADOR SHUMIKHA</h3>
+<ul><li>Se ha añadido un modo de disparo para activar las granadas incendiarias tras impactar.</li></ul>
+<h3>SOLID SNAKE</h3>
+<p>El radar de Solid Snake permite muchas maniobras en diferentes situaciones, por lo que puede ejercer presión sin correr demasiados riesgos.</p>
+<p>Queremos reducir ligeramente las capacidades generales de Snake para fomentar un uso deliberado y una priorización más clara de los objetivos.</p>
+<h3>RADAR SOLITON MK. III</h3>
+<ul><li>Cargas del modo de precisión: se reducen a 3 (antes 4).</li></ul>
+<h3>VALKYRIE</h3>
+<p>Queremos mejorar la capacidad de Valkyrie de instalar y aprovechar sus cámaras con mayor eficacia para mejorar su capacidad de crear líneas de visión sin aumentar su potencia en general.</p>
+<p>Se ha añadido el arma Glaive-12 para que pueda crear líneas de visión más rápido y desde más lejos.</p>
+<h3>EQUIPAMIENTO</h3>
+<ul><li>Armas secundarias: se ha añadido el arma Glaive-12.</li></ul>
+<h2>CAMBIOS DE PERFECCIONAMIENTO</h2>
+<p>Se trata de pequeños ajustes que no buscan alterar la potencia en general o la versatilidad de los agentes. En su lugar, se centran en pulir detalles de la jugabilidad, mejorar la homogeneidad y reforzar la optimización de la experiencia sin cambiar el metajuego. Buscamos mantener un flujo constante de estas mejoras paralelamente a las actualizaciones importantes para que el juego evolucione y mejore a un ritmo constante.</p>
+<h3>CAPITÃO</h3>
+<p>Queremos mejorar la capacidad de respuesta y la fiabilidad de los proyectiles de fuego de Capitão, de tal forma que nos aseguremos de que ejerzan presión más rápido una vez instalados.</p>
+<h3>PROYECTIL DE FUEGO</h3>
+<ul><li>Expansión: se reduce el retraso entre expansiones a 0,9 s (antes 1).</li></ul>
+<h3>CLASH</h3>
+<p>El táser solo funciona a potencia máxima cuando los enemigos se acercan a Clash, mientras que su impacto continúa siendo bastante bajo cuando huyen. Esta distinción hace hincapié en el contraataque direccional y fomenta que los jugadores adapten su posicionamiento durante los enfrentamientos. Al aumentar la ralentización cuando los enemigos se van, fortalecemos la capacidad de Clash de mantener la presión y controlar el espacio cuando los enemigos intentan retirarse.</p>
+<h3>TÁSER</h3>
+<ul><li>Ralentización: aumenta la fuerza cuando los enemigos se alejan al 10 % (antes 5 %).</li></ul>
+<h3>OSA</h3>
+<p>Este cambio permite que Osa coloque su escudo en una mayor variedad de situaciones, lo que mejora la flexibilidad y reduce la fricción al preparar las posiciones.</p>
+<h3>ESCUDO TRANSPARENTE TALON-8</h3>
+<ul><li>Se han reducido las restricciones de colocación.</li></ul>
+<h3>FUEGO</h3>
+<p>Queremos aumentar la letalidad y afianzar la amenaza y la nitidez de los peligros de fuego en el juego. De esta forma, colocarse o cruzar estas zonas acarreará consecuencias más inmediatas.</p>
+<ul><li>Daño: aumenta a 14 PS (antes 12).</li></ul>
+<h3>AGENTES IMPLICADOS</h3>
+<ul><li>Capitão</li><li>Dokkaebi</li><li>Goyo</li><li>Noor</li><li>Tachanka</li><li>Gasoductos</li></ul>
+<h3>ALAMBRE DE ESPINO</h3>
+<p>Este cambio consolida que el alambre de espino contrarresta bien a los BU-GI, lo que ofrece a los defensores una herramienta adicional para detener su avance. Los defensores se ven recompensados por colocar bien el dispositivo, mientras que los jugadores de Ram se ven motivados a preparar los caminos de la instalación con mayor cuidado y a responder a las configuraciones defensivas.</p>
+<ul><li>Los BU-GI se quedan enredados en el alambre de espino, lo que provoca que se detengan y se autodestruyan.</li></ul>
+</body></html>""")
+        self.news_detail_text.verticalScrollBar().setValue(0)
+        self.news_stack.setCurrentIndex(1)
+        self._sync_global_scroll_document()
+        self.global_scroll.verticalScrollBar().setValue(0)
+
+    def _resize_first_news_detail(self):
+        if not hasattr(self, "news_detail_page"):
+            return
+        nav_height = self.root_layout.itemAt(1).sizeHint().height() if self.root_layout.count() > 1 else 60
+        viewport_height = self.global_scroll.viewport().height()
+        detail_height = max(420, viewport_height - self.compact_header.height() - nav_height - 42)
+        self.news_detail_page.setFixedHeight(detail_height)
+        image_path = os.path.join(
+            RECURSOS_DIR, "noticias",
+            "-R6S-_Y11S3.2_Mid-Season_Designer-s_Notes_-_MIDSEASON_DESIGNER_NOTES_Y11S3_960x540.png",
+        )
+        self.news_detail_pixmap = QPixmap(image_path) if os.path.isfile(image_path) else QPixmap()
+        if not self.news_detail_pixmap.isNull():
+            image_width = max(220, round((self.width() - 96) * 0.40))
+            image_height = max(240, detail_height - 32)
+            # La referencia llena toda la columna y recorta los laterales del
+            # arte; mantener la proporción completa lo dejaba centrado y bajo.
+            cover = self.news_detail_pixmap.scaled(
+                image_width, image_height,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            crop_x = max(0, (cover.width() - image_width) // 2)
+            crop_y = max(0, (cover.height() - image_height) // 2)
+            self.news_detail_image.setPixmap(cover.copy(crop_x, crop_y, image_width, image_height))
+        if self.news_stack.currentIndex() == 1:
+            QTimer.singleShot(0, self._sync_global_scroll_document)
 
     def _badge_pixmap(self, name: str, size: QSize) -> QPixmap:
         candidates = [os.path.join(BADGES_DIR, f"{name}.png"),
@@ -755,6 +978,17 @@ class R6Launcher(QMainWindow):
                 image.setFixedSize(target.width() + 4, target.height() + 4)
                 return image
         else:
+            group = DEFENDER_HOME_ICONS.get(name)
+            path = os.path.join(RECURSOS_DIR, "defensores_home", f"Group {group}.png") if group else None
+            pixmap = QPixmap(path) if path and os.path.isfile(path) else QPixmap()
+            if not pixmap.isNull():
+                target = QSize(round(size * 0.82), size)
+                pixmap = pixmap.scaled(target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                image = QLabel()
+                image.setPixmap(pixmap)
+                image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                image.setFixedSize(target.width() + 4, target.height() + 4)
+                return image
             pixmap = self._badge_pixmap(name, QSize(size, size))
         if not pixmap.isNull():
             image = QLabel()
@@ -822,31 +1056,25 @@ class R6Launcher(QMainWindow):
         self.agent_grid_layout.setVerticalSpacing(12 if is_defender else 10)
 
         term = getattr(self, "agent_search_term", "")
-        operators = [name for name in OPERATOR_INFO if (name in DEFENDERS) == is_defender and (not term or term in name.casefold())]
-        columns = max(2, min(8 if not is_defender else 6, (self.width() - 70) // (136 if not is_defender else 142)))
+        order = DEFENDER_HOME_ORDER if is_defender else ATTACKER_HOME_ORDER
+        operators = [name for name in order if name in OPERATOR_INFO and (not term or term in name.casefold())]
+        columns = max(2, min(10, (self.width() - 70) // 136))
         for idx, name in enumerate(operators):
             info = OPERATOR_INFO[name]
             button = QPushButton()
-            if is_defender:
-                button.setMinimumSize(120, 128)
-                button.setMaximumSize(190, 160)
-                button.setStyleSheet(f"QPushButton {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 7px; padding: 7px; }} QPushButton:hover {{ background: #1a2432; border: 1px solid {GREEN}; }}")
-            else:
-                button.setFixedSize(126, 154)
-                button.setStyleSheet(f"QPushButton {{ background: transparent; border: 1px solid transparent; padding: 0; }} QPushButton:hover {{ background: transparent; border: 1px solid #ff5058; }}")
+            button.setFixedSize(126, 154)
+            hover_color = "#76B4FF" if is_defender else "#ff5058"
+            button.setStyleSheet(f"QPushButton {{ background: transparent; border: 1px solid transparent; padding: 0; }} QPushButton:hover {{ background: transparent; border: 1px solid {hover_color}; }}")
             cl = QVBoxLayout(button)
-            cl.setContentsMargins(1, 1, 1, 1) if not is_defender else cl.setContentsMargins(3, 3, 3, 3)
-            cl.setSpacing(4)
-            cl.addWidget(self._operator_icon(name, 146 if not is_defender else 62), alignment=Qt.AlignmentFlag.AlignHCenter)
-            if is_defender:
-                cl.addWidget(label(name.upper(), color=TEXT, size=11, bold=True), alignment=Qt.AlignmentFlag.AlignHCenter)
-                cl.addWidget(label(info.get("gadget", "DISPOSITIVO"), color=GREEN, size=9, wrap=True), alignment=Qt.AlignmentFlag.AlignHCenter)
+            cl.setContentsMargins(1, 1, 1, 1)
+            cl.setSpacing(0)
+            cl.addWidget(self._operator_icon(name, 146), alignment=Qt.AlignmentFlag.AlignHCenter)
             button.clicked.connect(lambda _checked=False, n=name, d=info, defender=is_defender: self._display_agent_details(n, d, defender))
             self.agent_grid_layout.addWidget(button, idx // columns, idx % columns)
         rows = (len(operators) + columns - 1) // columns
         self.agent_grid_layout.setRowStretch(rows, 0)
-        card_height = 136 if is_defender else 154
-        grid_spacing = 12 if is_defender else 10
+        card_height = 154
+        grid_spacing = 10
         self.agent_grid_content.setMinimumHeight(max(150, rows * card_height + max(0, rows - 1) * grid_spacing + 24))
         self.agent_grid_content.adjustSize()
 
