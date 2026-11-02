@@ -88,16 +88,24 @@ ENEMY_ROSTER_REGION_FRACTIONS = {
 }
 ENEMY_ROSTER_REGION = _region_from_fractions(ENEMY_ROSTER_REGION_FRACTIONS)
 
-# La fila azul del HUD conserva los cinco operadores aliados durante la ronda.
+# La fila aliada cambia de formato entre selección/preparación (tarjetas
+# anchas) y acción (cinco iconos compactos junto al marcador).
 TEAM_ROSTER_REGION_FRACTIONS = {
     "left": 0.2917, "top": 0.0047, "width": 0.1303, "height": 0.0510,
 }
 TEAM_ROSTER_REGION = _region_from_fractions(TEAM_ROSTER_REGION_FRACTIONS)
+TEAM_ROSTER_WIDE_REGION = _region_from_fractions({
+    "left": 0.1000, "top": 0.0000, "width": 0.3200, "height": 0.0556,
+})
 
 MIN_CONFIDENCE = 0.55  # umbral de correlación normalizada (0-1) para aceptar una lectura
 
 
-ROSTER_MIN_CONFIDENCE = 0.68
+# Los iconos rivales aparecen oscurecidos y a menor tamaño que los badges de
+# referencia. Un umbral demasiado alto deja algunos (por ejemplo Thatcher)
+# como "?" aunque el icono ya esté revelado. Sigue siendo una comparación
+# contra el badge real: los marcadores "?" no alcanzan este valor.
+ROSTER_MIN_CONFIDENCE = 0.60
 
 
 def _load_templates() -> dict[str, np.ndarray]:
@@ -169,7 +177,7 @@ if ICON_MATCH_AVAILABLE and not _TEMPLATES:
 
 
 def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONFIDENCE,
-                        search: bool = False) -> tuple[str | None, float]:
+                        search: bool = False, min_margin: float = 0.0) -> tuple[str | None, float]:
     """
     Compara un recorte de pantalla (el ícono solo, ya recortado -- ver
     KILLFEED_ICON_REGION) contra todos los badges conocidos. Devuelve
@@ -185,10 +193,11 @@ def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONF
     with NATIVE_LOCK:
         bgr = frame_bgra[:, :, :3] if frame_bgra.shape[2] == 4 else frame_bgra
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        best_name, best_score = None, -1.0
+        template_scores = []
         for name, template in _TEMPLATES.items():
             if template is None or template.size == 0:
                 continue
+            template_score = -1.0
             if search:
                 max_side = min(gray.shape[:2])
                 min_side = max(22, int(max_side * 0.58))
@@ -205,23 +214,27 @@ def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONF
                     resized = cv2.resize(template, (gray.shape[1], gray.shape[0]), interpolation=interpolation)
                 result = cv2.matchTemplate(gray, resized, cv2.TM_CCOEFF_NORMED)
                 score = float(result.max())
-                if score > best_score:
-                    best_name, best_score = name, score
+                template_score = max(template_score, score)
+            template_scores.append((template_score, name))
 
-    if best_score >= min_confidence:
+    if not template_scores:
+        return None, 0.0
+    template_scores.sort(reverse=True)
+    best_score, best_name = template_scores[0]
+    second_score = template_scores[1][0] if len(template_scores) > 1 else -1.0
+
+    if best_score >= min_confidence and best_score - second_score >= min_margin:
         return best_name, best_score
     return None, best_score
 
 
 def run_enemy_roster_watch_loop(on_operator_seen, region: dict = None,
                                 interval_s: float = 1.0):
-    """Lee iconos rivales revelados en las cinco casillas del HUD superior."""
+    """Lee iconos rivales revelados en la fila derecha del marcador."""
     import time
-    region = region or ENEMY_ROSTER_REGION
-    last_by_slot: list[str | None] = [None] * 5
     while True:
         try:
-            frame = capture_region(region)
+            frame = capture_region(region or ENEMY_ROSTER_REGION)
             if frame is None or getattr(frame, "size", 0) == 0 or frame.ndim != 3:
                 time.sleep(max(0.1, interval_s))
                 continue
@@ -230,11 +243,18 @@ def run_enemy_roster_watch_loop(on_operator_seen, region: dict = None,
                 x1 = int(index * slot_width)
                 x2 = int((index + 1) * slot_width)
                 slot = frame[:, x1:x2]
+                # El slot incluye margen vertical del marcador; comparar el
+                # cuadrado central del icono reduce la influencia del fondo
+                # rojo y de las líneas del HUD.
+                h, w = slot.shape[:2]
+                side = min(h, w)
+                y1 = max(0, (h - side) // 2)
+                x_icon = max(0, (w - side) // 2)
+                slot = slot[y1:y1 + side, x_icon:x_icon + side]
                 name, _score = match_operator_icon(
                     slot, min_confidence=ROSTER_MIN_CONFIDENCE, search=True,
                 )
-                if name and name != last_by_slot[index]:
-                    last_by_slot[index] = name
+                if name:
                     on_operator_seen(name)
         except Exception as exc:
             print(f"[operator_icon_match] Error leyendo la fila rival; se reintenta: {type(exc).__name__}: {exc}")
@@ -243,28 +263,49 @@ def run_enemy_roster_watch_loop(on_operator_seen, region: dict = None,
 
 def run_team_roster_watch_loop(on_roster_seen, region: dict = None,
                                interval_s: float = 1.0):
-    """Lee los cinco iconos aliados de la fila azul superior durante la ronda."""
+    """Emite un snapshot de aliados adaptado al formato actual de la fila."""
     import time
-    region = region or TEAM_ROSTER_REGION
-    last_roster: tuple[str | None, ...] | None = None
     while True:
         try:
-            frame = capture_region(region)
-            if frame is None or getattr(frame, "size", 0) == 0 or frame.ndim != 3:
-                time.sleep(max(0.1, interval_s))
-                continue
-            slot_width = frame.shape[1] / 5
-            roster = []
-            for index in range(5):
-                slot = frame[:, int(index * slot_width):int((index + 1) * slot_width)]
-                name, _score = match_operator_icon(
-                    slot, min_confidence=ROSTER_MIN_CONFIDENCE, search=True,
-                )
-                roster.append(name)
-            current = tuple(roster)
-            if current != last_roster:
-                last_roster = current
-                on_roster_seen([name for name in roster if name])
+            candidates = []
+            if region is not None:
+                candidates.append((capture_region(region), False))
+            else:
+                candidates.append((capture_region(TEAM_ROSTER_REGION), False))
+                candidates.append((capture_region(TEAM_ROSTER_WIDE_REGION), True))
+
+            best_roster: list[str | None] = []
+            best_score = -1.0
+            for frame, wide in candidates:
+                if frame is None or getattr(frame, "size", 0) == 0 or frame.ndim != 3:
+                    continue
+                slot_width = frame.shape[1] / 5
+                roster = []
+                score_sum = 0.0
+                for index in range(5):
+                    slot = frame[:, int(index * slot_width):int((index + 1) * slot_width)]
+                    if wide:
+                        # Tarjetas anchas: el badge va a la izquierda y hay
+                        # iconos de armas/gadgets en el resto del espacio.
+                        h, w = slot.shape[:2]
+                        icon_width = min(w, max(h, int(w * 0.62)))
+                        slot = slot[:, :icon_width]
+                        threshold, margin = 0.42, 0.015
+                    else:
+                        # Durante la acción, cada casilla es un badge compacto.
+                        threshold, margin = ROSTER_MIN_CONFIDENCE, 0.0
+                    name, confidence = match_operator_icon(
+                        slot, min_confidence=threshold, min_margin=margin, search=True,
+                    )
+                    roster.append(name)
+                    if name:
+                        score_sum += confidence
+                if score_sum > best_score:
+                    best_roster, best_score = roster, score_sum
+
+            # Reenvía el snapshot periódico para que el HUD pueda recuperarlo
+            # después de limpiar datos al comenzar una ronda nueva.
+            on_roster_seen([name for name in best_roster if name])
         except Exception as exc:
             print(f"[operator_icon_match] Error leyendo la fila aliada; se reintenta: {type(exc).__name__}: {exc}")
         time.sleep(max(0.1, interval_s))

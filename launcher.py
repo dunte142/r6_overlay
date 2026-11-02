@@ -410,7 +410,7 @@ class SettingsDialog(QDialog):
             ("F1 / INS", "Mostrar u ocultar el overlay"),
             ("F2", "Abrir o cerrar el plano y minimapa"),
             ("F3", "Mostrar u ocultar la bitácora del dron"),
-            ("F4", "Cambiar al siguiente mapa"),
+            ("F4", "Volver a mostrar la tarjeta de gadget"),
             ("F5", "Corregir manualmente el bando"),
             ("F6", "Ciclar/corregir el operador propio"),
         ]:

@@ -48,6 +48,7 @@ if HAS_WIN_HOTKEYS:
 
     # Código de tecla virtual de Windows para F1.
     VK_F1 = 0x70
+    VK_F4 = 0x73
     VK_INSERT = 0x2D
 
     def run_hotkey_thread(bindings: list[tuple[int, callable]]):

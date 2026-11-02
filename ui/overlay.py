@@ -15,12 +15,14 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRect, QRectF
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QPixmap, QPolygonF, QTransform, QImage, QRegion
+from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QPixmap, QPolygonF, QTransform, QImage, QRegion, QPainterPath
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from data.gadgets import get_operator_info, WALL_REINFORCEMENT_INFO
 from data.cameras import get_cameras
 from data.map_calibration import get_map_image_path
+from data.gadget_cards import get_gadget_card_path
+from data.operator_roles import get_operator_side
 from ui.assets import (
     ICON, FLOOR_ICONS, FONT_FAMILY, BADGES_DIR, OPERATOR_PORTRAITS, register_fonts,
     COLOR_ORANGE_TEXT, COLOR_LIME, COLOR_BLUE, COLOR_RED, COLOR_TEXT_LIGHT,
@@ -148,6 +150,30 @@ _MINI_DATA_FILES = {
     "Ying": ("atacantes mini data", "Group 728.png"),
     "Hibana": ("atacantes mini data", "Group 729.png"),
     "Capitao": ("atacantes mini data", "Group 730.png"),
+    "Amaru": ("atacantes mini data", "Group 260.png"),
+    "Blitz": ("atacantes mini data", "Group 261.png"),
+    "Fuze": ("atacantes mini data", "Group 1309.png"),
+    "Montagne": ("atacantes mini data", "Group 1310.png"),
+    "Ash": ("atacantes mini data", "Group 1311.png"),
+    "Nomad": ("atacantes mini data", "Group 1313.png"),
+    "Nokk": ("atacantes mini data", "Group 1314.png"),
+    "Kali": ("atacantes mini data", "Group 1315.png"),
+    "Ace": ("atacantes mini data", "Group 1316.png"),
+    "Zero": ("atacantes mini data", "Group 1317.png"),
+    "Grim": ("atacantes mini data", "Group 1320.png"),
+    "Solid Snake": ("atacantes mini data", "Group 1432.png"),
+    "Rauora": ("atacantes mini data", "Group 1433.png"),
+    "Striker": ("atacantes mini data", "Group 1434.png"),
+    "Deimos": ("atacantes mini data", "Group 1435.png"),
+    "Ram": ("atacantes mini data", "Group 1436.png"),
+    "Brava": ("atacantes mini data", "Group 1437.png"),
+    "Zofia": ("atacantes mini data", "Group 1438.png"),
+    "Blackbeard": ("atacantes mini data", "Group 1439.png"),
+    "Buck": ("atacantes mini data", "Group 1440.png"),
+    "Sledge": ("atacantes mini data", "Group 1441.png"),
+    "Gridlock": ("atacantes mini data", "Group 1442.png"),
+    "Iana": ("atacantes mini data", "Group 1443.png"),
+    "Sens": ("atacantes mini data", "Group 1444.png"),
 }
 
 
@@ -292,8 +318,12 @@ class Overlay(QWidget):
         self.update()
 
     def set_my_kit(self, operator_name: str):
+        previous_operator = self.state.my_kit
         self.state.my_kit = operator_name
         self.state.selected_operator = operator_name
+        if operator_name and (operator_name != previous_operator or not self.sound_layer._gadget_started_this_round):
+            side = get_operator_side(operator_name) or self.state.my_side
+            self.sound_layer.show_gadget(operator_name, side)
         # Cambiar/descubrir el operador no debe abrir el HUD por sí solo.
         # La visibilidad queda exclusivamente bajo el control de F1.
         self.update()
@@ -537,7 +567,7 @@ class Overlay(QWidget):
             # nombre, descripción y gadget de cada operador.
             team_names = list(dict.fromkeys(self.state.teammates))[:4]
             for index, teammate in enumerate(team_names):
-                x, y = 858, 256 + index * 120
+                x, y = 858, 256 + index * 130
                 if not self._draw_mini_data_card(painter, teammate, x, y, 458, 110):
                     self._draw_team_card(painter, x, y, 458, 110, teammate)
 
@@ -545,20 +575,20 @@ class Overlay(QWidget):
             # demás conservan el signo de interrogación de la referencia.
             enemy_names = list(dict.fromkeys(self.state.enemy_kit_known.values()))[:5]
             for index in range(5):
-                x, y = 1337, 256 + index * 110
+                x, y = 1337, 256 + index * 120
                 if index < len(enemy_names):
                     name = enemy_names[index]
                     if not self._draw_mini_data_card(painter, name, x, y, 458, 100):
                         self._draw_enemy_wide_card(painter, x, y, 458, 105, name)
                 else:
-                    self._draw_enemy_square(painter, x, y + (14 if index == 0 else 0), 76, 72, None)
+                    self._draw_enemy_square(painter, x, y + 14, 76, 72, None)
 
             # Controles visuales de la maqueta; los atajos globales siguen siendo
             # los que realmente activan marcador, plano y ajustes.
             painter.setPen(QColor(*COLOR_TEXT_LIGHT))
             painter.setFont(QFont(FONT_FAMILY, 27, QFont.Weight.Bold))
             painter.drawText(1605, 58, "PARTIDA ACTUAL")
-            for key, y in (("match_button", 19), ("settings_button", 171)):
+            for key, y in (("match_button", 19), ("sound_button", 95), ("settings_button", 171)):
                 pix = self._load_pixmap(ICON[key])
                 if pix and not pix.isNull():
                     painter.drawPixmap(QRectF(1831, y, 65, 64), pix, QRectF(pix.rect()))
@@ -915,7 +945,22 @@ class SoundLayer(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setGeometry(QApplication.primaryScreen().geometry())
-        self._sound_icon = QPixmap(ICON["sound_button"])
+        self._gadget_operator = None
+        self._gadget_card = QPixmap()
+        self._gadget_stage = "hidden"
+        self._gadget_started_this_round = False
+        self._gadget_rect = QRect()
+        self._gadget_animation_rect = QRect()
+        self._video_frames = {}
+        self._video_command_sender = None
+        self._round_animation_started = False
+        self._round_animation_rect = QRect()
+        self._round_exit_timer = QTimer(self)
+        self._round_exit_timer.setSingleShot(True)
+        self._round_exit_timer.timeout.connect(lambda: self._play_video("inicio de partida_sacar.mp4"))
+        self._gadget_hide_timer = QTimer(self)
+        self._gadget_hide_timer.setSingleShot(True)
+        self._gadget_hide_timer.timeout.connect(lambda: self._play_video("Gadget desaparece.mp4"))
         self._clickthrough_ok = _enable_clickthrough(self)
         self._update_mask()
         self.topmost_timer = QTimer(self)
@@ -929,14 +974,146 @@ class SoundLayer(QWidget):
     def _update_mask(self):
         sx = max(0.1, self.width() / 1920.0)
         sy = max(0.1, self.height() / 1080.0)
-        sound_x = int(1831 * sx)
-        sound_y = int(95 * sy)
-        region = QRegion(QRect(sound_x, sound_y, max(1, int(65 * sx)), max(1, int(64 * sy))))
+        region = QRegion()
         if self._clickthrough_ok and self.tactical_overlay.state.sound_direction_deg is not None:
             cx, cy = self.width() // 2, int(self.height() * 0.915)
             radius = int(85 * min(sx, sy))
             region = region.united(QRegion(QRect(cx - radius, cy - radius, radius * 2, radius * 2)))
+        if self._clickthrough_ok and any(
+            name in self._video_frames for name in ("inicio de partida.mp4", "inicio de partida_sacar.mp4")
+        ):
+            region = region.united(QRegion(self.rect()))
+        if self._clickthrough_ok and self._gadget_stage != "hidden" and not self._gadget_rect.isNull():
+            region = region.united(QRegion(self._gadget_rect))
+            if not self._gadget_animation_rect.isNull():
+                region = region.united(QRegion(self._gadget_animation_rect))
         self.setMask(region)
+
+    def show_gadget(self, operator_name: str, side: str | None = None):
+        side = side or self.tactical_overlay.state.my_side
+        card_path = get_gadget_card_path(operator_name, side)
+        if not card_path:
+            return
+        self._gadget_hide_timer.stop()
+        self._stop_video("Gadget desaparece.mp4")
+        self._gadget_operator = operator_name
+        self._gadget_started_this_round = True
+        self._gadget_card = QPixmap(card_path)
+        if self._gadget_card.isNull():
+            return
+        self._gadget_rect, self._gadget_animation_rect = self._gadget_target_rects()
+        self._gadget_stage = "entering"
+        self._video_frames.pop("Gadget desaparece.mp4", None)
+        self._gadget_hide_timer.start(40000)
+        self._update_mask()
+        self._play_video("Gadget aparece.mp4")
+
+    def reopen_gadget_card(self):
+        if self._gadget_operator:
+            self._gadget_hide_timer.stop()
+            self._stop_video("Gadget desaparece.mp4")
+            self._gadget_stage = "entering"
+            self._video_frames.pop("Gadget desaparece.mp4", None)
+            self._update_mask()
+            self._play_video("Gadget aparece.mp4")
+            self._gadget_hide_timer.start(40000)
+
+    def start_round_animation(self):
+        if self._round_animation_started:
+            return
+        self._round_animation_started = True
+        # Escala y ubica el aviso como en la referencia: compacto, arriba a la derecha.
+        self._round_animation_rect = QRect(
+            int(self.width() * 0.75),
+            -int(self.height() * 0.026),
+            max(1, int(self.width() * 0.24)),
+            max(1, int(self.height() * 0.29)),
+        )
+        self._video_frames.pop("inicio de partida_sacar.mp4", None)
+        self._update_mask()
+        self._play_video("inicio de partida.mp4")
+        self._round_exit_timer.start(45000)
+
+    def prepare_next_round(self):
+        self._round_exit_timer.stop()
+        self._gadget_hide_timer.stop()
+        for filename in (
+            "inicio de partida.mp4", "inicio de partida_sacar.mp4",
+            "Gadget aparece.mp4", "Gadget desaparece.mp4",
+        ):
+            self._stop_video(filename)
+            self._video_frames.pop(filename, None)
+        self._round_animation_started = False
+        self._gadget_started_this_round = False
+        self._gadget_stage = "hidden"
+        self._gadget_operator = None
+        self._gadget_card = QPixmap()
+        self._update_mask()
+        self.update()
+
+    def set_video_command_sender(self, sender):
+        self._video_command_sender = sender
+
+    def _play_video(self, filename: str):
+        if self._video_command_sender is None:
+            print(f"[overlay] No hay reproductor de video conectado para {filename}.", flush=True)
+            return
+        if filename.startswith("Gadget "):
+            size = self._gadget_animation_rect.size()
+        elif filename.startswith("inicio de partida"):
+            size = self._round_animation_rect.size()
+        else:
+            size = self.size()
+        command = {"type": "play_video", "name": filename,
+                   "width": max(1, size.width()), "height": max(1, size.height())}
+        if not self._video_command_sender(command):
+            print(f"[overlay] No se pudo iniciar el video {filename}.", flush=True)
+
+    def _stop_video(self, filename: str):
+        if self._video_command_sender is not None:
+            self._video_command_sender({"type": "stop_video", "name": filename})
+
+    def update_video_frame(
+        self, filename: str, data: bytes, width: int, height: int,
+        x: int, y: int, canvas_width: int, canvas_height: int,
+        panel_rect: tuple[int, int, int, int],
+    ):
+        frame = QPixmap()
+        if not frame.loadFromData(data, "PNG"):
+            return
+        first_frame = filename not in self._video_frames
+        self._video_frames[filename] = (frame, x, y, canvas_width, canvas_height, panel_rect)
+        if filename.startswith("Gadget ") and self._gadget_stage == "hidden":
+            self._gadget_stage = "entering"
+        if first_frame:
+            self._update_mask()
+        self.update()
+
+    def on_video_finished(self, filename: str):
+        if filename == "Gadget aparece.mp4" and self._gadget_stage == "entering":
+            self._gadget_stage = "visible"
+        elif filename == "Gadget desaparece.mp4":
+            self._gadget_stage = "final"
+        self._update_mask()
+        self.update()
+
+    def _gadget_target_rects(self):
+        sx = max(0.1, self.width() / 1920.0)
+        sy = max(0.1, self.height() / 1080.0)
+        # El MP4 tiene un lienzo 16:9 con el panel bajo el minimapa.
+        # Agranda la animación y su tarjeta conjuntamente para que el panel
+        # del gadget ocupe mejor el marco verde en pantallas de juego.
+        animation_width, animation_height = int(500 * sx), int(281 * sy)
+        x = max(0, int(52 * sx) - int(130 * sx))
+        y = int(345 * sy)
+        animation_rect = QRect(x, y, animation_width, animation_height)
+        card_rect = QRect(
+            x,
+            y + int(0.115 * animation_height),
+            int(0.73 * animation_width),
+            int(0.755 * animation_height),
+        )
+        return card_rect, animation_rect
 
     def update_audio(self):
         self._update_mask()
@@ -945,14 +1122,79 @@ class SoundLayer(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         sx = max(0.1, self.width() / 1920.0)
         sy = max(0.1, self.height() / 1080.0)
-        if not self._sound_icon.isNull():
-            painter.drawPixmap(
-                QRectF(1831 * sx, 95 * sy, 65 * sx, 64 * sy),
-                self._sound_icon,
-                QRectF(self._sound_icon.rect()),
+        round_video = self._video_frames.get("inicio de partida_sacar.mp4")
+        if round_video is None:
+            round_video = self._video_frames.get("inicio de partida.mp4")
+        if round_video is not None:
+            frame, x, y, canvas_width, canvas_height, _panel_rect = round_video
+            scale_x = self._round_animation_rect.width() / max(1, canvas_width)
+            scale_y = self._round_animation_rect.height() / max(1, canvas_height)
+            target = QRectF(
+                self._round_animation_rect.x() + x * scale_x,
+                self._round_animation_rect.y() + y * scale_y,
+                frame.width() * scale_x,
+                frame.height() * scale_y,
             )
+            painter.drawPixmap(target, frame, QRectF(frame.rect()))
+        gadget_video = self._video_frames.get("Gadget desaparece.mp4")
+        if gadget_video is None:
+            gadget_video = self._video_frames.get("Gadget aparece.mp4")
+        if gadget_video is not None and self._gadget_stage != "hidden":
+            frame, x, y, canvas_width, canvas_height, panel_rect = gadget_video
+            scale_x = self._gadget_animation_rect.width() / max(1, canvas_width)
+            scale_y = self._gadget_animation_rect.height() / max(1, canvas_height)
+            target = QRectF(
+                self._gadget_animation_rect.x() + x * scale_x,
+                self._gadget_animation_rect.y() + y * scale_y,
+                frame.width() * scale_x,
+                frame.height() * scale_y,
+            )
+            painter.drawPixmap(target, frame, QRectF(frame.rect()))
+            panel_x, panel_y, panel_w, panel_h = panel_rect
+            if not self._gadget_card.isNull() and panel_w > 0 and panel_h > 0:
+                panel_target = QRectF(
+                    self._gadget_animation_rect.x() + panel_x * scale_x,
+                    self._gadget_animation_rect.y() + panel_y * scale_y,
+                    panel_w * scale_x,
+                    panel_h * scale_y,
+                )
+                inset = max(1.0, min(panel_target.width(), panel_target.height()) * 0.015)
+                final_panel_w = self._gadget_animation_rect.width() * 0.73
+                final_panel_h = self._gadget_animation_rect.height() * 0.755
+                # Las tarjetas PNG tienen una relación de aspecto algo distinta
+                # al marco del MP4. Ajustarlas a ambos lados del panel evita que
+                # queden márgenes visibles dentro del contorno verde.
+                final_card_w = final_panel_w - inset * 2
+                final_card_h = final_panel_h - inset * 2
+                progress = min(1.0, panel_target.width() / max(1.0, final_panel_w))
+                progress = min(progress, panel_target.height() / max(1.0, final_panel_h))
+                progress = max(0.0, progress)
+                card_w = final_card_w * progress
+                card_h = final_card_h * progress
+                # La tarjeta empieza fuera del borde izquierdo; su borde derecho
+                # acompaña la expansión del panel hasta quedar completamente dentro.
+                card_target = QRectF(
+                    panel_target.left() + inset - (final_card_w - card_w) * 0.5,
+                    panel_target.center().y() - card_h / 2,
+                    card_w,
+                    card_h,
+                )
+                radius = min(panel_target.height() * 0.11, panel_target.width() * 0.12)
+                clip_path = QPainterPath()
+                clip_path.moveTo(panel_target.left(), panel_target.top())
+                clip_path.lineTo(panel_target.right() - radius, panel_target.top())
+                clip_path.quadTo(panel_target.right(), panel_target.top(), panel_target.right(), panel_target.top() + radius)
+                clip_path.lineTo(panel_target.right(), panel_target.bottom() - radius)
+                clip_path.quadTo(panel_target.right(), panel_target.bottom(), panel_target.right() - radius, panel_target.bottom())
+                clip_path.lineTo(panel_target.left(), panel_target.bottom())
+                clip_path.closeSubpath()
+                painter.save()
+                painter.setClipPath(clip_path)
+                painter.drawPixmap(card_target, self._gadget_card, QRectF(self._gadget_card.rect()))
+                painter.restore()
         owner = self.tactical_overlay
         if owner.state.sound_direction_deg is not None:
             owner._draw_sound_indicator(painter)

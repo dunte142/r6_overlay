@@ -72,6 +72,23 @@ class Bridge(QObject):
     my_operator_seen = pyqtSignal(str)
     side_detected = pyqtSignal(str)
     hotkey_pressed = pyqtSignal(str)
+    video_finished = pyqtSignal(str)
+    round_started = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._video_frames_lock = threading.Lock()
+        self._pending_video_frames = {}
+
+    def queue_video_frame(self, message: dict):
+        with self._video_frames_lock:
+            self._pending_video_frames[str(message.get("name", ""))] = message
+
+    def take_video_frames(self):
+        with self._video_frames_lock:
+            frames = self._pending_video_frames
+            self._pending_video_frames = {}
+        return frames
 
 
 class UiDispatcher(QObject):
@@ -90,6 +107,43 @@ class UiDispatcher(QObject):
         bridge.my_operator_seen.connect(self.on_my_operator_seen, Qt.ConnectionType.QueuedConnection)
         bridge.side_detected.connect(self.on_side_detected, Qt.ConnectionType.QueuedConnection)
         bridge.hotkey_pressed.connect(self.on_hotkey_pressed, Qt.ConnectionType.QueuedConnection)
+        bridge.video_finished.connect(self.on_video_finished, Qt.ConnectionType.QueuedConnection)
+        bridge.round_started.connect(self.on_round_started, Qt.ConnectionType.QueuedConnection)
+        self._bridge = bridge
+        self.video_frame_timer = QTimer(self)
+        self.video_frame_timer.setInterval(16)
+        self.video_frame_timer.timeout.connect(self._flush_video_frames)
+        self.video_frame_timer.start()
+
+    def _flush_video_frames(self):
+        for name, message in self._bridge.take_video_frames().items():
+            try:
+                raw = base64.b64decode(message.get("data", ""), validate=True)
+                self.overlay.sound_layer.update_video_frame(
+                    name, raw, int(message.get("width", 0)), int(message.get("height", 0)),
+                    int(message.get("x", 0)), int(message.get("y", 0)),
+                    int(message.get("canvas_width", 0)), int(message.get("canvas_height", 0)),
+                    tuple(message.get("panel", (0, 0, 0, 0))),
+                )
+            except Exception as exc:
+                print(f"[vision] Frame de video invÃ¡lido: {type(exc).__name__}: {exc}", flush=True)
+
+    @pyqtSlot(str)
+    def on_video_finished(self, name: str):
+        self._flush_video_frames()
+        self.overlay.sound_layer.on_video_finished(name)
+
+    @pyqtSlot()
+    def on_round_started(self):
+        # Cada cartel de preparación marca una ronda nueva. Vaciar la
+        # composición anterior antes de que lleguen los nuevos snapshots.
+        self.overlay.state.teammates = []
+        self.overlay.state.enemy_kit_known.clear()
+        self.overlay.state.my_kit = None
+        self.overlay.state.selected_operator = None
+        self.overlay.sound_layer.prepare_next_round()
+        self.overlay.update()
+        self.overlay.sound_layer.start_round_animation()
 
     @pyqtSlot(float, float, str, object)
     def on_sound_update(self, angle: float, intensity: float, floor_hint: str, sound_type: object):
@@ -143,24 +197,24 @@ class UiDispatcher(QObject):
     def on_team_detected(self, operators):
         try:
             own = self.overlay.state.my_kit
-            current = list(self.overlay.state.teammates)
             incoming = list(operators or [])
-            # La fila del HUD aporta el roster de ronda; el OCR de preparación
-            # puede completar nombres que aún no hayan sido leídos por icono.
-            merged = list(dict.fromkeys(current + incoming))
+            # Cada mensaje es una foto completa del roster de la ronda actual;
+            # reemplazar evita arrastrar aliados de la ronda o bando anterior.
+            roster = list(dict.fromkeys(incoming))
             if own:
-                merged = [name for name in merged if name.casefold() != own.casefold()]
-            self.overlay.set_teammates(merged[:4])
-            if incoming:
-                self.overlay.show_ephemeral_notice("Equipo detectado", duration_ms=2000)
+                roster = [name for name in roster if name.casefold() != own.casefold()]
+            if roster:
+                self.overlay.set_teammates(roster[:4])
         except Exception as exc:
             print(f"[main] Error actualizando equipo: {type(exc).__name__}: {exc}", flush=True)
 
     @pyqtSlot(str)
     def on_enemy_icon_seen(self, operator_name: str):
         try:
+            already_known = operator_name in self.overlay.state.enemy_kit_known.values()
             self.overlay.register_enemy_kit(operator_name, operator_name)
-            self.overlay.show_ephemeral_notice(f"Detectado: {operator_name}", duration_ms=2500)
+            if not already_known:
+                self.overlay.show_ephemeral_notice(f"Detectado: {operator_name}", duration_ms=2500)
         except Exception as exc:
             print(f"[main] Error actualizando icono enemigo: {type(exc).__name__}: {exc}", flush=True)
 
@@ -174,7 +228,11 @@ class UiDispatcher(QObject):
             ])
             side = get_operator_side(operator_name)
             if side:
+                changed = side != self.overlay.state.my_side
                 self.overlay.state.my_side = side
+                if changed:
+                    self.overlay.state.teammates = []
+                    self.overlay.state.enemy_kit_known.clear()
             self.overlay.show_ephemeral_notice(f"Tu operador: {operator_name}", duration_ms=2000)
         except Exception as exc:
             print(f"[main] Error actualizando operador propio: {type(exc).__name__}: {exc}", flush=True)
@@ -182,7 +240,16 @@ class UiDispatcher(QObject):
     @pyqtSlot(str)
     def on_side_detected(self, side: str):
         try:
+            changed = side != self.overlay.state.my_side
             self.overlay.state.my_side = side
+            if changed:
+                self.overlay.state.teammates = []
+                self.overlay.state.enemy_kit_known.clear()
+                if self.overlay.state.my_kit and get_operator_side(self.overlay.state.my_kit) != side:
+                    self.overlay.state.my_kit = None
+                    self.overlay.state.selected_operator = None
+                self.overlay.sound_layer.prepare_next_round()
+                self.overlay.update()
             self.overlay.show_ephemeral_notice(f"Tu lado: {side}", duration_ms=1500)
         except Exception as exc:
             print(f"[main] Error actualizando bando: {type(exc).__name__}: {exc}", flush=True)
@@ -197,6 +264,15 @@ class UiDispatcher(QObject):
     def _dispatch_hotkey(self, key: str):
         if key == "F1":
             self.overlay.toggle_tactical_hud()
+        elif key == "F4":
+            operator_name = self.overlay.state.my_kit or self.overlay.state.selected_operator
+            if operator_name:
+                side = get_operator_side(operator_name) or self.overlay.state.my_side
+                # Recargar desde el estado actual evita reabrir una tarjeta
+                # vieja si el agente propio cambió entre rondas.
+                self.overlay.sound_layer.show_gadget(operator_name, side)
+            else:
+                self.overlay.show_ephemeral_notice("Todavía no detecto tu agente", duration_ms=1800)
 
 
 def _reader_thread(name: str, target):
@@ -229,7 +305,7 @@ def _start_json_worker(label: str, script: str, bridge: Bridge, *, audio_protoco
         process = subprocess.Popen(
             [sys.executable, script],
             cwd=BASE_DIR,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if not audio_protocol else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=None,
             text=True,
@@ -303,6 +379,12 @@ def _start_json_worker(label: str, script: str, bridge: Bridge, *, audio_protoco
                     bridge.my_operator_seen.emit(str(message.get("value", "")))
                 elif kind == "side":
                     bridge.side_detected.emit(str(message.get("value", "")))
+                elif kind == "video_frame":
+                    bridge.queue_video_frame(message)
+                elif kind == "video_finished":
+                    bridge.video_finished.emit(str(message.get("name", "")))
+                elif kind == "round_start":
+                    bridge.round_started.emit()
                 elif kind == "fatal":
                     print(f"[vision-worker] Fallo fatal: {message.get('message', '')}", flush=True)
         except Exception as exc:
@@ -340,17 +422,21 @@ def _stop_process(process, label: str):
 
 def setup_hotkeys(bridge: Bridge):
     from ui.win_hotkeys import HAS_WIN_HOTKEYS
-    labels = ["F1", "insert"]
+    labels = ["F1", "insert", "F4"]
     if HAS_WIN_HOTKEYS:
-        from ui.win_hotkeys import start_hotkey_thread, VK_F1, VK_INSERT
-        vk_codes = [VK_F1, VK_INSERT]
-        bindings = [(vk, (lambda: bridge.hotkey_pressed.emit("F1"))) for vk in vk_codes]
+        from ui.win_hotkeys import start_hotkey_thread, VK_F1, VK_F4, VK_INSERT
+        bindings = [
+            (VK_F1, lambda: bridge.hotkey_pressed.emit("F1")),
+            (VK_INSERT, lambda: bridge.hotkey_pressed.emit("F1")),
+            (VK_F4, lambda: bridge.hotkey_pressed.emit("F4")),
+        ]
         start_hotkey_thread(bindings)
         return
     try:
         import keyboard
         for key in labels:
-            keyboard.add_hotkey(key, lambda: bridge.hotkey_pressed.emit("F1"))
+            action = "F4" if key == "F4" else "F1"
+            keyboard.add_hotkey(key, lambda action=action: bridge.hotkey_pressed.emit(action))
     except Exception as exc:
         print(f"[hotkeys] No se pudieron registrar hotkeys globales: {type(exc).__name__}: {exc}", flush=True)
 
@@ -380,6 +466,24 @@ def main():
     app._r6_audio_reader = audio_reader
     app._r6_vision_process = vision_process
     app._r6_vision_reader = vision_reader
+
+    def send_video_command(command: dict):
+        process = app._r6_vision_process
+        if process is None or process.poll() is not None or process.stdin is None:
+            return False
+        lock = getattr(process, "_r6_stdin_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            process._r6_stdin_lock = lock
+        try:
+            with lock:
+                process.stdin.write(json.dumps(command, ensure_ascii=False) + "\n")
+                process.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError, ValueError):
+            return False
+
+    overlay.sound_layer.set_video_command_sender(send_video_command)
 
     # Si el worker de visión tropieza con una DLL nativa, reiniciamos el
     # subsistema de detección de forma limitada. La interfaz no se reinicia.
