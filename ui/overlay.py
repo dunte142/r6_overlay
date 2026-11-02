@@ -1,11 +1,12 @@
 """
-Overlay transparente, siempre-arriba, click-through cuando no se lo necesita.
+Capas transparentes, siempre-arriba y click-through durante la partida.
 Contiene:
-- HUD táctico nuevo (ficha de operador + equipos), visible por F1 durante toda la partida
+- Capa ligera de sonido, siempre visible
+- HUD táctico (ficha de operador + equipos), visible por F1 durante toda la partida
 - Notificación efímera (validación visual de hallazgo) -- aparece y desaparece sola
 - Bitácora de drone (acumula hallazgos categorizados durante el droneo)
 - Capa de cámaras del mapa -- consulta voluntaria
-- Indicador de dirección de sonido -- arco cerca del centro de pantalla
+- Indicador de sonido -- aro verde alrededor de la brújula inferior
 """
 
 import os
@@ -13,8 +14,8 @@ import sys
 import unicodedata
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QPixmap, QPolygonF, QTransform, QImage
+from PyQt6.QtCore import Qt, QTimer, QPointF, QRect, QRectF
+from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QPixmap, QPolygonF, QTransform, QImage, QRegion
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from data.gadgets import get_operator_info, WALL_REINFORCEMENT_INFO
@@ -37,16 +38,117 @@ if sys.platform == "win32":
         ctypes.c_int, ctypes.c_int, wintypes.UINT,
     )
     _user32.SetWindowPos.restype = wintypes.BOOL
+    _user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+    _user32.GetWindowLongW.restype = ctypes.c_long
+    _user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
+    _user32.SetWindowLongW.restype = ctypes.c_long
     _HWND_TOPMOST = wintypes.HWND(-1)
     _SWP_NOMOVE = 0x0002
     _SWP_NOSIZE = 0x0001
     _SWP_NOACTIVATE = 0x0010
+    _SWP_FRAMECHANGED = 0x0020
+    _SWP_NOOWNERZORDER = 0x0200
+    _GWL_EXSTYLE = -20
+    _WS_EX_TRANSPARENT = 0x00000020
+    _WS_EX_LAYERED = 0x00080000
+    _WS_EX_NOACTIVATE = 0x08000000
 else:
     _user32 = None
 
 
+def _enable_clickthrough(widget) -> bool:
+    """Set click-through/no-activate before a transparent window is shown."""
+    if _user32 is None:
+        return True
+    try:
+        hwnd = wintypes.HWND(int(widget.winId()))
+        ctypes.set_last_error(0)
+        style = _user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+        required = _WS_EX_TRANSPARENT | _WS_EX_LAYERED | _WS_EX_NOACTIVATE
+        changed = (style & required) != required
+        if changed:
+            ctypes.set_last_error(0)
+            _user32.SetWindowLongW(hwnd, _GWL_EXSTYLE, style | required)
+            error = ctypes.get_last_error()
+            if error:
+                if not getattr(widget, "_clickthrough_warning_logged", False):
+                    widget._clickthrough_warning_logged = True
+                    print(f"[overlay] No se pudo configurar click-through (WinError {error}).", flush=True)
+                return False
+            _user32.SetWindowPos(
+                hwnd, _HWND_TOPMOST, 0, 0, 0, 0,
+                _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE | _SWP_FRAMECHANGED | _SWP_NOOWNERZORDER,
+            )
+        ctypes.set_last_error(0)
+        ready = (_user32.GetWindowLongW(hwnd, _GWL_EXSTYLE) & required) == required
+        if not ready and not getattr(widget, "_clickthrough_warning_logged", False):
+            widget._clickthrough_warning_logged = True
+            print("[overlay] Windows no confirmó los estilos click-through; no se mostrará el HUD táctico.", flush=True)
+        return ready
+    except Exception as exc:
+        print(f"[overlay] Error configurando click-through: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
 # Debajo del HUD superior del juego (marcador + timer), para no taparlo.
 NOTICE_Y = 120
+_MINI_DATA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "recursos")
+
+_MINI_DATA_FILES = {
+    "Rook": ("defensores mini data", "Group 1071.png"),
+    "Kapkan": ("defensores mini data", "Group 1072.png"),
+    "Pulse": ("defensores mini data", "Group 1073.png"),
+    "Castle": ("defensores mini data", "Group 1397.png"),
+    "Fenrir": ("defensores mini data", "Group 1398.png"),
+    "Solis": ("defensores mini data", "Group 1399.png"),
+    "Azami": ("defensores mini data", "Group 1400.png"),
+    "Thorn": ("defensores mini data", "Group 1401.png"),
+    "Thunderbird": ("defensores mini data", "Group 1402.png"),
+    "Melusi": ("defensores mini data", "Group 1403.png"),
+    "Wamai": ("defensores mini data", "Group 1404.png"),
+    "Goyo": ("defensores mini data", "Group 1405.png"),
+    "Warden": ("defensores mini data", "Group 1406.png"),
+    "Mozzie": ("defensores mini data", "Group 1407.png"),
+    "Kaid": ("defensores mini data", "Group 1408.png"),
+    "Clash": ("defensores mini data", "Group 1409.png"),
+    "Maestro": ("defensores mini data", "Group 1410.png"),
+    "Alibi": ("defensores mini data", "Group 1411.png"),
+    "Vigil": ("defensores mini data", "Group 1412.png"),
+    "Ela": ("defensores mini data", "Group 1413.png"),
+    "Mira": ("defensores mini data", "Group 1414.png"),
+    "Lesion": ("defensores mini data", "Group 1415.png"),
+    "Echo": ("defensores mini data", "Group 1416.png"),
+    "Caveira": ("defensores mini data", "Group 1417.png"),
+    "Valkyrie": ("defensores mini data", "Group 1418.png"),
+    "Frost": ("defensores mini data", "Group 1419.png"),
+    "Smoke": ("defensores mini data", "Group 1420.png"),
+    "Doc": ("defensores mini data", "Group 1421.png"),
+    "Jager": ("defensores mini data", "Group 1422.png"),
+    "Tachanka": ("defensores mini data", "Group 1423.png"),
+    "Bandit": ("defensores mini data", "Group 1424.png"),
+    "Mute": ("defensores mini data", "Group 1425.png"),
+    "Skopos": ("defensores mini data", "Group 1426.png"),
+    "Aruni": ("defensores mini data", "Group 1427.png"),
+    "Denari": ("defensores mini data", "Group 1428.png"),
+    "Oryx": ("defensores mini data", "Group 1429.png"),
+    "Sentry": ("defensores mini data", "Group 1430.png"),
+    "Noor": ("defensores mini data", "Group 1431.png"),
+    "Osa": ("atacantes mini data", "Group 704.png"),
+    "Flores": ("atacantes mini data", "Group 705.png"),
+    "Thatcher": ("atacantes mini data", "Group 707.png"),
+    "Thermite": ("atacantes mini data", "Group 709.png"),
+    "IQ": ("atacantes mini data", "Group 710.png"),
+    "Twitch": ("atacantes mini data", "Group 711.png"),
+    "Glaz": ("atacantes mini data", "Group 714.png"),
+    "Lion": ("atacantes mini data", "Group 722.png"),
+    "Finka": ("atacantes mini data", "Group 723.png"),
+    "Dokkaebi": ("atacantes mini data", "Group 724.png"),
+    "Maverick": ("atacantes mini data", "Group 725.png"),
+    "Jackal": ("atacantes mini data", "Group 727.png"),
+    "Ying": ("atacantes mini data", "Group 728.png"),
+    "Hibana": ("atacantes mini data", "Group 729.png"),
+    "Capitao": ("atacantes mini data", "Group 730.png"),
+}
 
 
 @dataclass
@@ -103,6 +205,9 @@ class Overlay(QWidget):
 
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(screen)
+        # Crear el HWND y activar click-through antes del primer show evita
+        # que la ventana tape una entrada durante el cambio de ronda.
+        self._clickthrough_ok = _enable_clickthrough(self)
 
         self.repaint_timer = QTimer(self)
         self.repaint_timer.timeout.connect(self._tick)
@@ -112,12 +217,13 @@ class Overlay(QWidget):
 
         # Timer SEPARADO, más rápido, solo para reclamar "siempre encima".
         # Refuerza el z-order sin elevar la frecuencia de repintado.
-        # El HUD táctico nuevo solo se dibuja cuando el usuario pulsa F1; permanece visible al iniciar la ronda.
+        # El HUD táctico queda oculto hasta que el jugador pulsa F1.
         self.topmost_timer = QTimer(self)
         self.topmost_timer.timeout.connect(self._reassert_topmost)
-        # Reafirmar el z-order 1-2 veces por segundo evita llamadas Win32
-        # demasiado frecuentes al cambiar el juego entre preparación y 3D.
-        self.topmost_timer.start(750)
+        # Siege puede volver a ponerse encima al cerrar ESC y recuperar el
+        # foco. Reafirmamos el z-order a ritmo de juego para recuperar la
+        # capa táctica enseguida, sin activar ni enfocar esta ventana.
+        self.topmost_timer.start(16)
 
         # Flags de diagnóstico -- el programa venía muriendo con un crash
         # NATIVO (no una excepción de Python) justo al entrar al loop
@@ -129,13 +235,25 @@ class Overlay(QWidget):
         self._logged_first_tick = False
         self._logged_first_paint = False
 
+        # Esta ventana liviana es independiente: F1 solo controla el HUD
+        # táctico y no puede ocultar la capa permanente de sonido.
+        self.sound_layer = SoundLayer(self)
+        self.sound_layer.show()
+        self.sound_layer._reassert_topmost()
+
     # ---------- API pública para disparar eventos desde el resto del programa ----------
 
     def show_tactical_hud(self, operator_name: str | None = None):
         """Abre el HUD táctico nuevo. No está limitado a la fase de preparación."""
+        if not _enable_clickthrough(self):
+            print("[overlay] HUD táctico no mostrado: no se pudo asegurar click-through.", flush=True)
+            return
+        self._clickthrough_ok = True
         if operator_name:
             self.state.selected_operator = operator_name
         self.state.tactical_hud_visible = True
+        self.show()
+        self._reassert_topmost()
         self.update()
 
     def show_ephemeral_notice(self, text: str, duration_ms: int = 2500):
@@ -153,8 +271,20 @@ class Overlay(QWidget):
         self.update()
 
     def toggle_tactical_hud(self):
-        """F1 alterna únicamente el HUD táctico nuevo durante toda la partida."""
-        self.state.tactical_hud_visible = not self.state.tactical_hud_visible
+        """F1 muestra u oculta solo la capa táctica sin activar su ventana."""
+        if self.state.tactical_hud_visible:
+            self.state.tactical_hud_visible = False
+            self.hide()
+        else:
+            # Reaplicar antes de mostrar: el juego nunca debe recibir una
+            # ventana táctica opaca a teclado o mouse.
+            self._clickthrough_ok = _enable_clickthrough(self)
+            if not self._clickthrough_ok:
+                print("[overlay] HUD táctico no mostrado: no se pudo asegurar click-through.", flush=True)
+                return
+            self.state.tactical_hud_visible = True
+            self.show()
+            self._reassert_topmost()
         print(
             f"[overlay] HUD táctico {'visible' if self.state.tactical_hud_visible else 'oculto'} (F1)",
             flush=True,
@@ -241,6 +371,7 @@ class Overlay(QWidget):
         self.state.sound_direction_deg = angle_deg
         self.state.sound_intensity = max(0.0, min(1.0, intensity))
         self.update()
+        self.sound_layer.update_audio()
 
     # ---------- Render ----------
 
@@ -259,19 +390,21 @@ class Overlay(QWidget):
             return
         try:
             # Algunos cambios de modo/resolución al entrar a la ronda pueden
-            # recrear el área visible. La ventana Qt permanece viva y se
-            # vuelve a mostrar sin tomar el foco si Windows la ocultó.
+            # recrear el área visible; no mostrar una ventana que el jugador
+            # ocultó con F1.
             if not self.isVisible():
-                self.show()
+                return
             screen = QApplication.primaryScreen()
             if screen is not None:
                 geometry = screen.geometry()
                 if self.geometry() != geometry:
                     self.setGeometry(geometry)
-            hwnd = int(self.winId())
+            hwnd_handle = wintypes.HWND(int(self.winId()))
+            _enable_clickthrough(self)
+            position_flags = _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE | _SWP_NOOWNERZORDER
             ok = _user32.SetWindowPos(
-                wintypes.HWND(hwnd), _HWND_TOPMOST, 0, 0, 0, 0,
-                _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE | 0x0200,
+                hwnd_handle, _HWND_TOPMOST, 0, 0, 0, 0,
+                position_flags,
             )
             if not ok and not getattr(self, "_topmost_warning_logged", False):
                 self._topmost_warning_logged = True
@@ -312,7 +445,6 @@ class Overlay(QWidget):
             ("drone_log", self.state.drone_log_visible, self._draw_drone_log),
             ("camera_layer", self.state.camera_layer_visible, self._draw_camera_layer),
             ("map_panel", self.state.map_panel_visible, self._draw_map_panel),
-            ("sound_indicator", self.state.tactical_hud_visible and self.state.sound_direction_deg is not None, self._draw_sound_indicator),
         ]
         # OJO: el log previo marcaba "primer paintEvent" como un todo, pero
         # el primer paintEvent casi siempre pinta CERO paneles (nada está
@@ -359,24 +491,27 @@ class Overlay(QWidget):
             sy = max(0.1, self.height() / 1080.0)
             painter.scale(sx, sy)
 
-            # Composición del operador: retrato + gadget + consejo de uso.
+            # Oscurecimiento global suave como en la referencia.
+            painter.fillRect(QRectF(0, 0, 1920, 1080), QColor(0, 0, 0, 132))
+
+            # La ficha propia ocupa el panel izquierdo completo.
             portrait_path = self._operator_portrait_path(operator_name)
             portrait = self._load_pixmap(portrait_path) if portrait_path else None
             if portrait and not portrait.isNull():
                 fitted = portrait.scaled(
-                    765, 705,
+                    793, 731,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
-                px = 80 + (765 - fitted.width()) // 2
-                py = 160 + (705 - fitted.height()) // 2
+                px = 30 + (793 - fitted.width()) // 2
+                py = 160 + (731 - fitted.height()) // 2
                 painter.drawPixmap(px, py, fitted)
             else:
                 self._draw_operator_fallback(painter, operator_name, info)
 
-            # Separador sutil entre la ficha del operador y el equipo.
-            painter.setPen(QPen(QColor(120, 184, 0, 180), 1.5))
-            painter.drawLine(850, 160, 850, 855)
+            # Separador vertical claro entre la ficha y las listas.
+            painter.setPen(QPen(QColor(235, 235, 235, 225), 2))
+            painter.drawLine(829, 150, 829, 890)
 
             mine_is_def = self.state.my_side == "Defensores"
             my_label = self._load_pixmap(
@@ -386,50 +521,47 @@ class Overlay(QWidget):
                 ICON["label_equipo_rival_atacantes" if mine_is_def else "label_equipo_rival_defensores"]
             )
             if my_label and not my_label.isNull():
-                painter.drawPixmap(895, 190, my_label)
+                painter.drawPixmap(859, 202, my_label)
             else:
                 painter.setPen(QColor(*COLOR_TEXT_LIGHT))
                 painter.setFont(QFont(FONT_FAMILY, 25, QFont.Weight.Bold))
-                painter.drawText(895, 215, "MI EQUIPO")
+                painter.drawText(859, 226, "MI EQUIPO")
             if enemy_label and not enemy_label.isNull():
-                painter.drawPixmap(1390, 190, enemy_label)
+                painter.drawPixmap(1337, 202, enemy_label)
             else:
                 painter.setPen(QColor(*COLOR_RED))
                 painter.setFont(QFont(FONT_FAMILY, 25, QFont.Weight.Bold))
-                painter.drawText(1390, 215, "EQUIPO RIVAL")
+                painter.drawText(1337, 226, "EQUIPO RIVAL")
 
-            # Cuatro compañeros identificados por OCR. Si aún no hay datos,
-            # se reservan las mismas posiciones con un estado pendiente.
+            # Tarjetas compuestas entregadas en mini data: incluyen el icono,
+            # nombre, descripción y gadget de cada operador.
             team_names = list(dict.fromkeys(self.state.teammates))[:4]
-            for index in range(4):
-                teammate = team_names[index] if index < len(team_names) else None
-                self._draw_team_card(
-                    painter, 880, 242 + index * 142, 460, 125,
-                    teammate, placeholder=(teammate is None),
-                )
+            for index, teammate in enumerate(team_names):
+                x, y = 858, 256 + index * 120
+                if not self._draw_mini_data_card(painter, teammate, x, y, 458, 110):
+                    self._draw_team_card(painter, x, y, 458, 110, teammate)
 
-            # El overlay nunca inventa enemigos: solo muestra los ya observados.
+            # Solo se completan las tarjetas rivales que el juego reveló; las
+            # demás conservan el signo de interrogación de la referencia.
             enemy_names = list(dict.fromkeys(self.state.enemy_kit_known.values()))[:5]
-            self._draw_enemy_wide_card(
-                painter, 1387, 242, 462, 115,
-                enemy_names[0] if enemy_names else None,
-            )
-            for index in range(1, 5):
-                self._draw_enemy_square(
-                    painter, 1392, 402 + (index - 1) * 142,
-                    76, 72,
-                    enemy_names[index] if index < len(enemy_names) else None,
-                )
+            for index in range(5):
+                x, y = 1337, 256 + index * 110
+                if index < len(enemy_names):
+                    name = enemy_names[index]
+                    if not self._draw_mini_data_card(painter, name, x, y, 458, 100):
+                        self._draw_enemy_wide_card(painter, x, y, 458, 105, name)
+                else:
+                    self._draw_enemy_square(painter, x, y + (14 if index == 0 else 0), 76, 72, None)
 
             # Controles visuales de la maqueta; los atajos globales siguen siendo
             # los que realmente activan marcador, plano y ajustes.
             painter.setPen(QColor(*COLOR_TEXT_LIGHT))
             painter.setFont(QFont(FONT_FAMILY, 27, QFont.Weight.Bold))
-            painter.drawText(1645, 58, "PARTIDA ACTUAL")
-            for key, y in (("match_button", 18), ("sound_button", 83), ("settings_button", 148)):
+            painter.drawText(1605, 58, "PARTIDA ACTUAL")
+            for key, y in (("match_button", 19), ("settings_button", 171)):
                 pix = self._load_pixmap(ICON[key])
                 if pix and not pix.isNull():
-                    painter.drawPixmap(QRectF(1837, y, 56, 56), pix, QRectF(pix.rect()))
+                    painter.drawPixmap(QRectF(1831, y, 65, 64), pix, QRectF(pix.rect()))
 
             # Marco perimetral naranja como en la referencia (se dibuja al final
             # para que permanezca visible por encima de todos los paneles).
@@ -468,6 +600,25 @@ class Overlay(QWidget):
             return None
         return None
 
+    def _draw_mini_data_card(self, painter: QPainter, operator_name: str,
+                             x: int, y: int, w: int, h: int) -> bool:
+        entry = _MINI_DATA_FILES.get(operator_name)
+        if not entry:
+            normalized = self._normalize_operator_name(operator_name)
+            entry = next(
+                (value for name, value in _MINI_DATA_FILES.items()
+                 if self._normalize_operator_name(name) == normalized),
+                None,
+            )
+        if not entry:
+            return False
+        path = os.path.join(_MINI_DATA_ROOT, entry[0], entry[1])
+        pixmap = self._load_pixmap(path)
+        if not pixmap or pixmap.isNull():
+            return False
+        painter.drawPixmap(QRectF(x, y, w, h), pixmap, QRectF(pixmap.rect()))
+        return True
+
     @staticmethod
     def _short_description(name: str, info: dict) -> str:
         fixed = {
@@ -478,7 +629,12 @@ class Overlay(QWidget):
         }
         if name in fixed:
             return fixed[name]
-        description = str(info.get("descripcion", "Información del operador disponible en su ficha."))
+        description = info.get("descripcion")
+        if not description and info.get("gadget"):
+            description = f"Su dispositivo es {info['gadget']}."
+        if not description:
+            description = "Operador identificado en la partida."
+        description = str(description)
         description = description.split(". ")[0].strip()
         if len(description) > 105:
             description = description[:102].rsplit(" ", 1)[0] + "…"
@@ -531,72 +687,41 @@ class Overlay(QWidget):
 
     def _draw_team_card(self, painter: QPainter, x: int, y: int, w: int, h: int,
                         operator_name: str | None, placeholder: bool = False):
-        points = [
-            QPointF(x, y + 18), QPointF(x + 20, y), QPointF(x + w - 20, y),
-            QPointF(x + w, y + 18), QPointF(x + w, y + h - 19),
-            QPointF(x + w - 22, y + h), QPointF(x + 22, y + h), QPointF(x, y + h - 17),
-        ]
-        painter.setBrush(QColor(5, 7, 10, 215))
-        painter.setPen(QPen(QColor(230, 126, 34, 235), 1.6))
-        painter.drawPolygon(QPolygonF(points))
-
         if placeholder:
-            unknown = self._load_pixmap(ICON["unknown_operator"])
-            if unknown and not unknown.isNull():
-                painter.drawPixmap(QRectF(x + 15, y + 28, 62, 60), unknown, QRectF(unknown.rect()))
-            painter.setPen(QColor(120, 170, 205))
-            painter.setFont(QFont(FONT_FAMILY, 21, QFont.Weight.Bold))
-            painter.drawText(x + 94, y + 38, "ESPERANDO DETECCIÓN")
-            painter.setPen(QColor(190, 190, 190))
-            painter.setFont(QFont(FONT_FAMILY, 16))
-            painter.drawText(QRectF(x + 94, y + 45, w - 112, 66), Qt.TextFlag.TextWordWrap,
-                             "El operador aparecerá cuando sea legible en la pantalla.")
+            self._draw_enemy_square(painter, x, y + 14, 76, 72, None)
             return
 
         badge_path = self._operator_badge_path(operator_name)
         badge = self._load_pixmap(badge_path) if badge_path else None
         if badge and not badge.isNull():
-            painter.drawPixmap(QRectF(x + 16, y + 28, 66, 66), badge, QRectF(badge.rect()))
-        else:
-            unknown = self._load_pixmap(ICON["unknown_operator"])
-            if unknown and not unknown.isNull():
-                painter.drawPixmap(QRectF(x + 16, y + 28, 62, 60), unknown, QRectF(unknown.rect()))
+            painter.drawPixmap(QRectF(x, y + 10, 76, 72), badge, QRectF(badge.rect()))
 
         name = operator_name or "Operador desconocido"
         info = get_operator_info(name) or {}
         painter.setPen(QColor(107, 171, 255))
         painter.setFont(QFont(FONT_FAMILY, 23, QFont.Weight.Bold))
-        painter.drawText(x + 96, y + 35, name)
+        painter.drawText(x + 86, y + 25, name)
         painter.setPen(QColor(*COLOR_TEXT_LIGHT))
-        painter.setFont(QFont(FONT_FAMILY, 16))
+        painter.setFont(QFont(FONT_FAMILY, 15))
         description = self._short_description(name, info)
-        painter.drawText(QRectF(x + 96, y + 43, w - 116, h - 48), Qt.TextFlag.TextWordWrap, description)
+        painter.drawText(QRectF(x + 86, y + 32, w - 100, h - 35), Qt.TextFlag.TextWordWrap, description)
 
     def _draw_enemy_wide_card(self, painter: QPainter, x: int, y: int, w: int, h: int,
                               operator_name: str | None):
-        points = [
-            QPointF(x, y + 17), QPointF(x + 20, y), QPointF(x + w - 20, y),
-            QPointF(x + w, y + 17), QPointF(x + w, y + h - 20),
-            QPointF(x + w - 20, y + h), QPointF(x + 20, y + h), QPointF(x, y + h - 18),
-        ]
-        painter.setBrush(QColor(5, 7, 10, 215))
-        painter.setPen(QPen(QColor(230, 126, 34, 235), 1.6))
-        painter.drawPolygon(QPolygonF(points))
-        if operator_name:
-            badge_path = self._operator_badge_path(operator_name)
-            badge = self._load_pixmap(badge_path) if badge_path else None
-            if badge and not badge.isNull():
-                painter.drawPixmap(QRectF(x + 18, y + 24, 68, 68), badge, QRectF(badge.rect()))
-            painter.setPen(QColor(230, 140, 35))
-            painter.setFont(QFont(FONT_FAMILY, 25, QFont.Weight.Bold))
-            painter.drawText(x + 104, y + 43, operator_name)
-            painter.setPen(QColor(205, 205, 205))
-            painter.setFont(QFont(FONT_FAMILY, 16))
-            painter.drawText(x + 104, y + 70, "Identificado en pantalla")
-        else:
-            painter.setPen(QColor(255, 140, 0))
-            painter.setFont(QFont(FONT_FAMILY, 38, QFont.Weight.Bold))
-            painter.drawText(x + 28, y + 70, "?")
+        if not operator_name:
+            return
+        badge_path = self._operator_badge_path(operator_name)
+        badge = self._load_pixmap(badge_path) if badge_path else None
+        if badge and not badge.isNull():
+            painter.drawPixmap(QRectF(x, y + 10, 76, 72), badge, QRectF(badge.rect()))
+        painter.setPen(QColor(245, 90, 90))
+        painter.setFont(QFont(FONT_FAMILY, 23, QFont.Weight.Bold))
+        painter.drawText(x + 86, y + 25, operator_name)
+        info = get_operator_info(operator_name) or {}
+        painter.setPen(QColor(235, 235, 235))
+        painter.setFont(QFont(FONT_FAMILY, 15))
+        painter.drawText(QRectF(x + 86, y + 32, w - 192, h - 35),
+                         Qt.TextFlag.TextWordWrap, self._short_description(operator_name, info))
 
     def _draw_enemy_square(self, painter: QPainter, x: int, y: int, w: int, h: int,
                            operator_name: str | None):
@@ -751,26 +876,87 @@ class Overlay(QWidget):
             painter.drawText(plan_rect, Qt.AlignmentFlag.AlignCenter, "Sin plano para este mapa/piso")
 
     def _draw_sound_indicator(self, painter: QPainter):
-        """Arco tipo Fortnite cerca del centro de pantalla.
+        """Aro de audio alrededor de la brújula, en la parte inferior.
         angle_deg: 0 = frente, 90 = derecha, -90 = izquierda, 180 = atrás (aprox)."""
-        import math
-        cx, cy = self.width() // 2, self.height() // 2 - 40
-        radius = 90
+        scale = min(self.width() / 1920.0, self.height() / 1080.0)
+        cx, cy = self.width() // 2, int(self.height() * 0.915)
+        radius = int(70 * scale)
 
-        angle_rad = math.radians(self.state.sound_direction_deg - 90)
-        px = cx + radius * math.cos(angle_rad)
-        py = cy + radius * math.sin(angle_rad)
-
-        alpha = int(80 + 175 * self.state.sound_intensity)
-        pen = QPen(QColor(140, 255, 140, alpha), 4)
-        painter.setPen(pen)
+        # Aro constante para enmarcar la brújula y arco brillante para indicar
+        # la dirección estimada del sonido.
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(142, 255, 0, 175), max(1.5, 2.0 * scale)))
+        painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
 
-        span = 40  # grados de apertura del arco
+        alpha = int(100 + 155 * self.state.sound_intensity)
+        pen = QPen(QColor(142, 255, 0, alpha), max(2.0, 4.0 * scale))
+        painter.setPen(pen)
+
+        span = 42  # grados de apertura del arco direccional
         rect_x, rect_y = cx - radius, cy - radius
         start_angle = int((90 - self.state.sound_direction_deg - span / 2) * 16)
         span_angle = int(span * 16)
         painter.drawArc(rect_x, rect_y, radius * 2, radius * 2, start_angle, span_angle)
+
+
+class SoundLayer(QWidget):
+    """Capa permanente y pasiva para sonido y futuras animaciones ligeras."""
+
+    def __init__(self, tactical_overlay: Overlay):
+        super().__init__()
+        self.tactical_overlay = tactical_overlay
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setGeometry(QApplication.primaryScreen().geometry())
+        self._sound_icon = QPixmap(ICON["sound_button"])
+        self._clickthrough_ok = _enable_clickthrough(self)
+        self._update_mask()
+        self.topmost_timer = QTimer(self)
+        self.topmost_timer.timeout.connect(self._reassert_topmost)
+        self.topmost_timer.start(16)
+
+    def _reassert_topmost(self):
+        Overlay._reassert_topmost(self)
+        self._update_mask()
+
+    def _update_mask(self):
+        sx = max(0.1, self.width() / 1920.0)
+        sy = max(0.1, self.height() / 1080.0)
+        sound_x = int(1831 * sx)
+        sound_y = int(95 * sy)
+        region = QRegion(QRect(sound_x, sound_y, max(1, int(65 * sx)), max(1, int(64 * sy))))
+        if self._clickthrough_ok and self.tactical_overlay.state.sound_direction_deg is not None:
+            cx, cy = self.width() // 2, int(self.height() * 0.915)
+            radius = int(85 * min(sx, sy))
+            region = region.united(QRegion(QRect(cx - radius, cy - radius, radius * 2, radius * 2)))
+        self.setMask(region)
+
+    def update_audio(self):
+        self._update_mask()
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        sx = max(0.1, self.width() / 1920.0)
+        sy = max(0.1, self.height() / 1080.0)
+        if not self._sound_icon.isNull():
+            painter.drawPixmap(
+                QRectF(1831 * sx, 95 * sy, 65 * sx, 64 * sy),
+                self._sound_icon,
+                QRectF(self._sound_icon.rect()),
+            )
+        owner = self.tactical_overlay
+        if owner.state.sound_direction_deg is not None:
+            owner._draw_sound_indicator(painter)
+        painter.end()
 
 
 def run_overlay_standalone_demo():

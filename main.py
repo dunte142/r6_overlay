@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import QApplication
 
 from ui.overlay import Overlay
 from data.map_calibration import list_maps_with_images
+from data.operator_roles import get_operator_side
 
 
 class MatchState:
@@ -141,8 +142,17 @@ class UiDispatcher(QObject):
     @pyqtSlot(object)
     def on_team_detected(self, operators):
         try:
-            self.overlay.set_teammates(list(operators or []))
-            self.overlay.show_ephemeral_notice("Equipo detectado", duration_ms=2000)
+            own = self.overlay.state.my_kit
+            current = list(self.overlay.state.teammates)
+            incoming = list(operators or [])
+            # La fila del HUD aporta el roster de ronda; el OCR de preparación
+            # puede completar nombres que aún no hayan sido leídos por icono.
+            merged = list(dict.fromkeys(current + incoming))
+            if own:
+                merged = [name for name in merged if name.casefold() != own.casefold()]
+            self.overlay.set_teammates(merged[:4])
+            if incoming:
+                self.overlay.show_ephemeral_notice("Equipo detectado", duration_ms=2000)
         except Exception as exc:
             print(f"[main] Error actualizando equipo: {type(exc).__name__}: {exc}", flush=True)
 
@@ -158,6 +168,13 @@ class UiDispatcher(QObject):
     def on_my_operator_seen(self, operator_name: str):
         try:
             self.overlay.set_my_kit(operator_name)
+            self.overlay.set_teammates([
+                name for name in self.overlay.state.teammates
+                if name.casefold() != operator_name.casefold()
+            ])
+            side = get_operator_side(operator_name)
+            if side:
+                self.overlay.state.my_side = side
             self.overlay.show_ephemeral_notice(f"Tu operador: {operator_name}", duration_ms=2000)
         except Exception as exc:
             print(f"[main] Error actualizando operador propio: {type(exc).__name__}: {exc}", flush=True)
@@ -323,17 +340,17 @@ def _stop_process(process, label: str):
 
 def setup_hotkeys(bridge: Bridge):
     from ui.win_hotkeys import HAS_WIN_HOTKEYS
-    labels = ["F1"]
+    labels = ["F1", "insert"]
     if HAS_WIN_HOTKEYS:
-        from ui.win_hotkeys import start_hotkey_thread, VK_F1
-        vk_codes = [VK_F1]
-        bindings = [(vk, (lambda current=key: bridge.hotkey_pressed.emit(current))) for key, vk in zip(labels, vk_codes)]
+        from ui.win_hotkeys import start_hotkey_thread, VK_F1, VK_INSERT
+        vk_codes = [VK_F1, VK_INSERT]
+        bindings = [(vk, (lambda: bridge.hotkey_pressed.emit("F1"))) for vk in vk_codes]
         start_hotkey_thread(bindings)
         return
     try:
         import keyboard
         for key in labels:
-            keyboard.add_hotkey(key, lambda current=key: bridge.hotkey_pressed.emit(current))
+            keyboard.add_hotkey(key, lambda: bridge.hotkey_pressed.emit("F1"))
     except Exception as exc:
         print(f"[hotkeys] No se pudieron registrar hotkeys globales: {type(exc).__name__}: {exc}", flush=True)
 
@@ -355,8 +372,7 @@ def main():
     except Exception as exc:
         print(f"[hotkeys] Error de inicialización: {type(exc).__name__}: {exc}", flush=True)
 
-    # La ventana existe desde el inicio pero el HUD nuevo solo se dibuja al pulsar F1.
-    overlay.show()
+    # El HUD táctico arranca oculto; la capa ligera de sonido ya queda activa.
 
     audio_process, audio_reader = start_audio_process(bridge)
     vision_process, vision_reader = start_vision_process(bridge)

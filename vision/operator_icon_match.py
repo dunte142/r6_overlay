@@ -77,11 +77,27 @@ KILLFEED_ICON_REGION = _region_from_fractions(KILLFEED_ICON_REGION_FRACTIONS)
 # cambia el HUD), recalibrar con:
 #   python -m tools.calibrate_region my_operator
 MY_OPERATOR_ICON_REGION_FRACTIONS = {
-    "left": 0.3932, "top": 0.0046, "width": 0.0229, "height": 0.0583,
+    "left": 0.3922, "top": 0.0047, "width": 0.0292, "height": 0.0510,
 }
 MY_OPERATOR_ICON_REGION = _region_from_fractions(MY_OPERATOR_ICON_REGION_FRACTIONS)
 
+# Cinco posiciones del equipo rival en la franja superior del HUD. Solo se
+# aceptan iconos realmente revelados; las casillas con "?" no producen match.
+ENEMY_ROSTER_REGION_FRACTIONS = {
+    "left": 0.5781, "top": 0.0047, "width": 0.1303, "height": 0.0510,
+}
+ENEMY_ROSTER_REGION = _region_from_fractions(ENEMY_ROSTER_REGION_FRACTIONS)
+
+# La fila azul del HUD conserva los cinco operadores aliados durante la ronda.
+TEAM_ROSTER_REGION_FRACTIONS = {
+    "left": 0.2917, "top": 0.0047, "width": 0.1303, "height": 0.0510,
+}
+TEAM_ROSTER_REGION = _region_from_fractions(TEAM_ROSTER_REGION_FRACTIONS)
+
 MIN_CONFIDENCE = 0.55  # umbral de correlación normalizada (0-1) para aceptar una lectura
+
+
+ROSTER_MIN_CONFIDENCE = 0.68
 
 
 def _load_templates() -> dict[str, np.ndarray]:
@@ -152,7 +168,8 @@ if ICON_MATCH_AVAILABLE and not _TEMPLATES:
 # CUALQUIER llamada nativa (OpenCV o Tesseract), no solo esta función.
 
 
-def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -> tuple[str | None, float]:
+def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONFIDENCE,
+                        search: bool = False) -> tuple[str | None, float]:
     """
     Compara un recorte de pantalla (el ícono solo, ya recortado -- ver
     KILLFEED_ICON_REGION) contra todos los badges conocidos. Devuelve
@@ -172,15 +189,85 @@ def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONF
         for name, template in _TEMPLATES.items():
             if template is None or template.size == 0:
                 continue
-            resized = cv2.resize(template, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_AREA)
-            result = cv2.matchTemplate(gray, resized, cv2.TM_CCOEFF_NORMED)
-            score = float(result.max())
-            if score > best_score:
-                best_name, best_score = name, score
+            if search:
+                max_side = min(gray.shape[:2])
+                min_side = max(22, int(max_side * 0.58))
+                candidate_sides = list(range(min_side, max_side + 1, 2))
+                if not candidate_sides or candidate_sides[-1] != max_side:
+                    candidate_sides.append(max_side)
+            else:
+                candidate_sides = [min(gray.shape[1], gray.shape[0])]
+            for side in candidate_sides:
+                interpolation = cv2.INTER_AREA if side < template.shape[0] else cv2.INTER_LINEAR
+                if search:
+                    resized = cv2.resize(template, (side, side), interpolation=interpolation)
+                else:
+                    resized = cv2.resize(template, (gray.shape[1], gray.shape[0]), interpolation=interpolation)
+                result = cv2.matchTemplate(gray, resized, cv2.TM_CCOEFF_NORMED)
+                score = float(result.max())
+                if score > best_score:
+                    best_name, best_score = name, score
 
     if best_score >= min_confidence:
         return best_name, best_score
     return None, best_score
+
+
+def run_enemy_roster_watch_loop(on_operator_seen, region: dict = None,
+                                interval_s: float = 1.0):
+    """Lee iconos rivales revelados en las cinco casillas del HUD superior."""
+    import time
+    region = region or ENEMY_ROSTER_REGION
+    last_by_slot: list[str | None] = [None] * 5
+    while True:
+        try:
+            frame = capture_region(region)
+            if frame is None or getattr(frame, "size", 0) == 0 or frame.ndim != 3:
+                time.sleep(max(0.1, interval_s))
+                continue
+            slot_width = frame.shape[1] / 5
+            for index in range(5):
+                x1 = int(index * slot_width)
+                x2 = int((index + 1) * slot_width)
+                slot = frame[:, x1:x2]
+                name, _score = match_operator_icon(
+                    slot, min_confidence=ROSTER_MIN_CONFIDENCE, search=True,
+                )
+                if name and name != last_by_slot[index]:
+                    last_by_slot[index] = name
+                    on_operator_seen(name)
+        except Exception as exc:
+            print(f"[operator_icon_match] Error leyendo la fila rival; se reintenta: {type(exc).__name__}: {exc}")
+        time.sleep(max(0.1, interval_s))
+
+
+def run_team_roster_watch_loop(on_roster_seen, region: dict = None,
+                               interval_s: float = 1.0):
+    """Lee los cinco iconos aliados de la fila azul superior durante la ronda."""
+    import time
+    region = region or TEAM_ROSTER_REGION
+    last_roster: tuple[str | None, ...] | None = None
+    while True:
+        try:
+            frame = capture_region(region)
+            if frame is None or getattr(frame, "size", 0) == 0 or frame.ndim != 3:
+                time.sleep(max(0.1, interval_s))
+                continue
+            slot_width = frame.shape[1] / 5
+            roster = []
+            for index in range(5):
+                slot = frame[:, int(index * slot_width):int((index + 1) * slot_width)]
+                name, _score = match_operator_icon(
+                    slot, min_confidence=ROSTER_MIN_CONFIDENCE, search=True,
+                )
+                roster.append(name)
+            current = tuple(roster)
+            if current != last_roster:
+                last_roster = current
+                on_roster_seen([name for name in roster if name])
+        except Exception as exc:
+            print(f"[operator_icon_match] Error leyendo la fila aliada; se reintenta: {type(exc).__name__}: {exc}")
+        time.sleep(max(0.1, interval_s))
 
 
 # Alias corto -- vision/team_ocr.py compara el ícono de cada fila de la
@@ -189,7 +276,9 @@ def match_operator_icon(frame_bgra: np.ndarray, min_confidence: float = MIN_CONF
 match_icon = match_operator_icon
 
 
-def run_icon_watch_loop(on_operator_seen, region: dict = None, interval_s: float = 0.5, cooldown_s: float = 2.0):
+def run_icon_watch_loop(on_operator_seen, region: dict = None, interval_s: float = 0.5,
+                        cooldown_s: float = 2.0, search: bool = False,
+                        min_confidence: float = MIN_CONFIDENCE):
     """
     on_operator_seen(name) se llama cuando el ícono recortado calza con
     confianza contra un operador conocido Y no se avisó el mismo operador
@@ -209,7 +298,7 @@ def run_icon_watch_loop(on_operator_seen, region: dict = None, interval_s: float
     while True:
         try:
             frame = capture_region(region)
-            name, score = match_operator_icon(frame)
+            name, score = match_operator_icon(frame, min_confidence=min_confidence, search=search)
         except Exception as e:
             print(f"[operator_icon_match] Error leyendo el ícono; se reintenta: {type(e).__name__}: {e}")
             time.sleep(min(1.0, max(interval_s, 0.15)))

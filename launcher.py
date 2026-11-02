@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from data.gadgets import OPERATOR_INFO
 from data.map_calibration import ALL_MAPS, get_map_image_path
+from data.operator_roles import DEFENDERS
 from ui.assets import register_fonts, OPERATOR_PORTRAITS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,14 +45,6 @@ GREEN = "#78b800"
 ORANGE = "#e67e22"
 ATTACKER_RED = "#c9363e"
 BLUE = "#5e8cff"
-
-DEFENDERS = {
-    "Noor", "Denari", "Skopos", "Sentry", "Tubarao", "Fenrir", "Solis", "Azami",
-    "Thorn", "Thunderbird", "Aruni", "Melusi", "Oryx", "Wamai", "Goyo", "Warden",
-    "Mozzie", "Kaid", "Clash", "Maestro", "Alibi", "Vigil", "Ela", "Lesion",
-    "Mira", "Echo", "Caveira", "Valkyrie", "Frost", "Mute", "Smoke", "Castle",
-    "Pulse", "Doc", "Rook", "Jager", "Tachanka", "Kapkan", "Bandit",
-}
 
 MAP_DISPLAY_NAMES = {
     "Bank": "Banco", "Border": "Frontera", "Chalet": "Chalet",
@@ -414,7 +407,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(label("AJUSTES Y CONTROLES", color=GREEN, size=19, bold=True))
         layout.addWidget(label("Atajos globales del overlay", color=ORANGE, size=13, bold=True))
         for key, description in [
-            ("F1", "Mostrar u ocultar el HUD táctico nuevo"),
+            ("F1 / INS", "Mostrar u ocultar el overlay"),
             ("F2", "Abrir o cerrar el plano y minimapa"),
             ("F3", "Mostrar u ocultar la bitácora del dron"),
             ("F4", "Cambiar al siguiente mapa"),
@@ -423,7 +416,7 @@ class SettingsDialog(QDialog):
         ]:
             row = QHBoxLayout()
             key_lbl = label(key, color=GREEN, size=13, bold=True)
-            key_lbl.setFixedWidth(40)
+            key_lbl.setFixedWidth(90)
             row.addWidget(key_lbl)
             row.addWidget(label(description, color=TEXT, size=12, wrap=True), 1)
             layout.addLayout(row)

@@ -74,7 +74,10 @@ def main() -> int:
         from vision.floor_ocr import run_floor_detection_loop, TESSERACT_AVAILABLE
         from vision.map_ocr import run_map_detection_loop
         from vision.team_ocr import run_team_detection_loop
-        from vision.operator_icon_match import run_icon_watch_loop, MY_OPERATOR_ICON_REGION
+        from vision.operator_icon_match import (
+            run_icon_watch_loop, run_enemy_roster_watch_loop, run_team_roster_watch_loop,
+            MY_OPERATOR_ICON_REGION, ENEMY_ROSTER_REGION, TEAM_ROSTER_REGION,
+        )
         from vision.side_ocr import run_side_detection_loop
 
         try:
@@ -125,7 +128,13 @@ def main() -> int:
         start_thread("operator-icon-killfeed", run_icon_watch_loop, lambda value: send({"type": "enemy", "value": str(value)}))
         start_thread("operator-icon-self", run_icon_watch_loop,
                      lambda value: send({"type": "self_operator", "value": str(value)}),
-                     region=MY_OPERATOR_ICON_REGION)
+                     region=MY_OPERATOR_ICON_REGION, search=True, min_confidence=0.68)
+        start_thread("operator-icons-enemy-roster", run_enemy_roster_watch_loop,
+                     lambda value: send({"type": "enemy", "value": str(value)}),
+                     region=ENEMY_ROSTER_REGION)
+        start_thread("operator-icons-team-roster", run_team_roster_watch_loop,
+                     lambda value: send({"type": "team", "value": list(value or [])}),
+                     region=TEAM_ROSTER_REGION)
         start_thread("side-ocr", run_side_detection_loop, lambda value: send({"type": "side", "value": str(value)}))
 
         print("[vision-worker] Todos los detectores configurados; proceso auxiliar activo.", flush=True)
