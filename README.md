@@ -9,6 +9,7 @@ A Windows desktop companion for Tom Clancy's Rainbow Six Siege. It includes a vi
 - **Map reference:** map artwork, floor information, and camera references where available.
 - **Two in-game overlay layers:** a lightweight sound layer stays available over the game, while **F1** or **Insert** shows or hides the tactical layer. The sound direction ring sits around the in-game compass. The tactical layer shows your operator, detected teammates, and revealed enemies.
 - **Operator cards:** in-game team cards use the supplied attacker and defender mini-data artwork, including operator names, gadget images, and descriptions.
+- **Iana video card (`video_test` branch):** the F1 profile replaces Iana's static gadget image with a looping video. F4 continues to open the operator-specific gadget card, and the team roster refreshes across consecutive rounds.
 - **Vision worker:** screen capture and visual recognition for maps, floors, sides, operators, enemies, and minimap data. OCR uses Tesseract when it is installed.
 - **Audio worker:** optional WASAPI loopback audio analysis through PyAudioWPatch.
 - **Fault isolation:** the Qt interface, vision worker, and audio worker run separately so failures in native vision or audio dependencies are less likely to close the interface.
@@ -54,3 +55,4 @@ tools/               Development and maintenance utilities
 - The launcher and in-game HUD are separate entry points: `iniciar.bat` opens the launcher, while `main.py` starts the in-game overlay process. F1 and Insert are registered as global hotkeys so the tactical layer can be toggled during a round without giving it focus.
 - Some visual recognition depends on game HUD layout and screen resolution; OCR and audio features may be unavailable when their external tools or supported devices are missing.
 - This is a community companion project and is not affiliated with or endorsed by Ubisoft.
+- The `video_test` branch contains the Iana video card, corrected Iana/Blitz gadget artwork mapping, and periodic teammate roster refresh. `main` remains on the preceding stable commit.

@@ -84,8 +84,8 @@ ATTACKER_GADGET_CARDS = {
     "Glaz": "Group 1148.png",
     "Osa": "Group 1149.png",
     "Ying": "Group 1150.png",
-    "Blitz": "Group 1151.png",
-    "Iana": "Group 1152.png",
+    "Blitz": "Group 1152.png",
+    "Iana": "Group 1153.png",
     "Striker": "Group 1589.png",
     "Deimos": "Group 1590.png",
 }

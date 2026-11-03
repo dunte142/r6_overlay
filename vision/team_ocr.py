@@ -148,14 +148,19 @@ def run_team_detection_loop(on_team_update, region: dict = TEAM_SIDEBAR_REGION, 
     """Actualiza operadores detectados y reintenta después de capturas transitorias."""
     import time
     last_found: list[str] = []
+    last_emitted_at = 0.0
     errors = 0
     while True:
         try:
             found = detect_team_operators(region)
             errors = 0
-            if found != last_found and found:
+            now = time.monotonic()
+            # Repite un roster estable periÃ³dicamente: la ronda puede limpiar
+            # el estado de la interfaz aunque las cinco selecciones no cambien.
+            if found and (found != last_found or now - last_emitted_at >= 4.0):
                 on_team_update(found)
-                last_found = found
+                last_emitted_at = now
+            last_found = found
         except Exception as e:
             errors += 1
             if errors <= 3 or errors % 100 == 0:

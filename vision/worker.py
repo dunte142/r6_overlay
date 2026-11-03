@@ -123,11 +123,14 @@ def main() -> int:
         video_versions = {}
         video_lock = threading.Lock()
 
-        def play_animation(filename: str, output_width: int, output_height: int):
+        def play_animation(filename: str, output_width: int, output_height: int, loop: bool = False):
             if cv2 is None or np is None:
                 print("[vision-worker] No se puede reproducir video: OpenCV no está disponible.", flush=True)
                 return
-            path = os.path.join(PROJECT_ROOT, "assets", "recursos", "ANIMACIONES", filename)
+            if filename == "iana_gadget_loop.mp4":
+                path = os.path.join(PROJECT_ROOT, "assets", "recursos", "videospj", "atacantes", "IANA.mp4")
+            else:
+                path = os.path.join(PROJECT_ROOT, "assets", "recursos", "ANIMACIONES", filename)
             with video_lock:
                 version = video_versions.get(filename, 0) + 1
                 video_versions[filename] = version
@@ -156,12 +159,24 @@ def main() -> int:
                                 break
                         ok, frame = capture.read()
                         if not ok:
+                            if loop and total > 0:
+                                capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                frame_index = 0
+                                deadline = time.monotonic()
+                                continue
                             break
                         if frame.shape[1] != width or frame.shape[0] != height:
                             frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
-                        visible = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        visible = cv2.compare(visible, 12, cv2.CMP_GT)
-                        bounds = cv2.findNonZero(visible)
+                        if loop:
+                            crop_x = crop_y = 0
+                            crop_h, crop_w = frame.shape[:2]
+                            cropped = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
+                            cropped[:, :, 3] = 255
+                            bounds = None
+                        else:
+                            visible = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                            visible = cv2.compare(visible, 12, cv2.CMP_GT)
+                            bounds = cv2.findNonZero(visible)
                         panel_rect = last_panel_rect
                         if filename.startswith("Gadget "):
                             b, g, r = cv2.split(frame)
@@ -177,7 +192,9 @@ def main() -> int:
                             if candidates:
                                 panel_rect = max(candidates, key=lambda item: item[0])[1]
                                 last_panel_rect = panel_rect
-                        if bounds is None:
+                        if loop:
+                            pass
+                        elif bounds is None:
                             crop_x = crop_y = 0
                             crop_w = crop_h = 1
                             cropped = np.zeros((1, 1, 4), dtype=np.uint8)
@@ -186,7 +203,7 @@ def main() -> int:
                             color_crop = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
                             cropped = cv2.cvtColor(color_crop, cv2.COLOR_BGR2BGRA)
                         # Los recursos usan negro transparente para el overlay.
-                        if bounds is not None:
+                        if bounds is not None and not loop:
                             alpha = visible[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w].copy()
                             if filename.startswith("Gadget "):
                                 yy, xx = np.ogrid[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
@@ -224,7 +241,7 @@ def main() -> int:
                     capture.release()
                     with video_lock:
                         still_current = video_versions.get(filename) == version
-                    if still_current:
+                    if still_current and not loop:
                         send({"type": "video_finished", "name": filename})
 
             start_thread(f"video-{filename}", decode)
@@ -234,9 +251,11 @@ def main() -> int:
                 try:
                     command = json.loads(line)
                     if command.get("type") == "play_video":
+                        filename = os.path.basename(str(command.get("name", "")))
                         play_animation(
-                            os.path.basename(str(command.get("name", ""))),
+                            filename,
                             int(command.get("width", 0)), int(command.get("height", 0)),
+                            bool(command.get("loop", False)) and filename == "iana_gadget_loop.mp4",
                         )
                     elif command.get("type") == "stop_video":
                         with video_lock:

@@ -249,7 +249,9 @@ class Overlay(QWidget):
         # Siege puede volver a ponerse encima al cerrar ESC y recuperar el
         # foco. Reafirmamos el z-order a ritmo de juego para recuperar la
         # capa táctica enseguida, sin activar ni enfocar esta ventana.
-        self.topmost_timer.start(16)
+        # Reafirma el z-order con menos frecuencia para no forzar repintados
+        # visibles de las dos ventanas transparentes en cada frame.
+        self.topmost_timer.start(200)
 
         # Flags de diagnóstico -- el programa venía muriendo con un crash
         # NATIVO (no una excepción de Python) justo al entrar al loop
@@ -278,6 +280,7 @@ class Overlay(QWidget):
         if operator_name:
             self.state.selected_operator = operator_name
         self.state.tactical_hud_visible = True
+        self.sound_layer.sync_iana_video()
         self.show()
         self._reassert_topmost()
         self.update()
@@ -311,6 +314,7 @@ class Overlay(QWidget):
             self.state.tactical_hud_visible = True
             self.show()
             self._reassert_topmost()
+        self.sound_layer.sync_iana_video()
         print(
             f"[overlay] HUD táctico {'visible' if self.state.tactical_hud_visible else 'oculto'} (F1)",
             flush=True,
@@ -321,7 +325,12 @@ class Overlay(QWidget):
         previous_operator = self.state.my_kit
         self.state.my_kit = operator_name
         self.state.selected_operator = operator_name
-        if operator_name and (operator_name != previous_operator or not self.sound_layer._gadget_started_this_round):
+        self.sound_layer.sync_iana_video()
+        if operator_name and (
+            operator_name != previous_operator
+            or operator_name != self.sound_layer._gadget_operator
+            or not self.sound_layer._gadget_started_this_round
+        ):
             side = get_operator_side(operator_name) or self.state.my_side
             self.sound_layer.show_gadget(operator_name, side)
         # Cambiar/descubrir el operador no debe abrir el HUD por sí solo.
@@ -332,6 +341,8 @@ class Overlay(QWidget):
         """Lista de operadores de COMPAÑEROS (nunca el tuyo -- ese lo fija
         set_my_kit/F6), leída de la barra de preparación por vision/team_ocr.py.
         Reemplaza la lista completa en cada llamada (ya viene deduplicada)."""
+        if self.state.teammates == operators:
+            return
         self.state.teammates = operators
         self.update()
 
@@ -423,6 +434,13 @@ class Overlay(QWidget):
             # recrear el área visible; no mostrar una ventana que el jugador
             # ocultó con F1.
             if not self.isVisible():
+                # La capa de audio sigue activa aunque F1 oculte el HUD.
+                sound_layer = getattr(self, "sound_layer", None)
+                if sound_layer is not None and sound_layer.isVisible():
+                    _user32.SetWindowPos(
+                        wintypes.HWND(int(sound_layer.winId())), _HWND_TOPMOST, 0, 0, 0, 0,
+                        _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE | _SWP_NOOWNERZORDER,
+                    )
                 return
             screen = QApplication.primaryScreen()
             if screen is not None:
@@ -439,6 +457,14 @@ class Overlay(QWidget):
             if not ok and not getattr(self, "_topmost_warning_logged", False):
                 self._topmost_warning_logged = True
                 print(f"[overlay] SetWindowPos no pudo reafirmar topmost (WinError {ctypes.get_last_error()}).", flush=True)
+            # Mantener la capa de video por encima del HUD en orden fijo evita
+            # que ambas ventanas alternen el z-order y hagan parpadear el clip.
+            sound_layer = getattr(self, "sound_layer", None)
+            if sound_layer is not None and sound_layer.isVisible():
+                _user32.SetWindowPos(
+                    wintypes.HWND(int(sound_layer.winId())), _HWND_TOPMOST, 0, 0, 0, 0,
+                    position_flags,
+                )
         except Exception as exc:
             if not getattr(self, "_topmost_warning_logged", False):
                 self._topmost_warning_logged = True
@@ -536,6 +562,9 @@ class Overlay(QWidget):
                 px = 30 + (793 - fitted.width()) // 2
                 py = 160 + (731 - fitted.height()) // 2
                 painter.drawPixmap(px, py, fitted)
+                if operator_name.casefold() == "iana":
+                    # Tapa el gadget estático; SoundLayer lo reemplaza por el video.
+                    painter.fillRect(QRectF(px + 535, py + 270, 180, 190), QColor(8, 12, 14, 238))
             else:
                 self._draw_operator_fallback(painter, operator_name, info)
 
@@ -914,10 +943,6 @@ class Overlay(QWidget):
 
         # Aro constante para enmarcar la brújula y arco brillante para indicar
         # la dirección estimada del sonido.
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(142, 255, 0, 175), max(1.5, 2.0 * scale)))
-        painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
-
         alpha = int(100 + 155 * self.state.sound_intensity)
         pen = QPen(QColor(142, 255, 0, alpha), max(2.0, 4.0 * scale))
         painter.setPen(pen)
@@ -955,6 +980,8 @@ class SoundLayer(QWidget):
         self._video_command_sender = None
         self._round_animation_started = False
         self._round_animation_rect = QRect()
+        self._iana_video_rect = QRect()
+        self._iana_video_active = False
         self._round_exit_timer = QTimer(self)
         self._round_exit_timer.setSingleShot(True)
         self._round_exit_timer.timeout.connect(lambda: self._play_video("inicio de partida_sacar.mp4"))
@@ -963,12 +990,9 @@ class SoundLayer(QWidget):
         self._gadget_hide_timer.timeout.connect(lambda: self._play_video("Gadget desaparece.mp4"))
         self._clickthrough_ok = _enable_clickthrough(self)
         self._update_mask()
-        self.topmost_timer = QTimer(self)
-        self.topmost_timer.timeout.connect(self._reassert_topmost)
-        self.topmost_timer.start(16)
-
     def _reassert_topmost(self):
-        Overlay._reassert_topmost(self)
+        owner = self.tactical_overlay
+        owner._reassert_topmost()
         self._update_mask()
 
     def _update_mask(self):
@@ -987,7 +1011,32 @@ class SoundLayer(QWidget):
             region = region.united(QRegion(self._gadget_rect))
             if not self._gadget_animation_rect.isNull():
                 region = region.united(QRegion(self._gadget_animation_rect))
+        if (self._clickthrough_ok and self.tactical_overlay.state.tactical_hud_visible
+                and self._is_iana_selected() and not self._iana_video_rect.isNull()):
+            region = region.united(QRegion(self._iana_video_rect))
         self.setMask(region)
+
+    def _is_iana_selected(self):
+        name = self.tactical_overlay.state.my_kit or self.tactical_overlay.state.selected_operator or ""
+        return str(name).strip().casefold() == "iana"
+
+    def sync_iana_video(self):
+        """Reproduce el gadget de Iana solo mientras su ficha F1 está abierta."""
+        name = "iana_gadget_loop.mp4"
+        overlay = self.tactical_overlay
+        sx = max(0.1, self.width() / 1920.0)
+        sy = max(0.1, self.height() / 1080.0)
+        self._iana_video_rect = QRect(int(577 * sx), int(475 * sy), int(155 * sx), int(87 * sy))
+        if overlay.state.tactical_hud_visible and self._is_iana_selected():
+            if not self._iana_video_active:
+                self._iana_video_active = True
+                self._play_video(name, loop=True)
+        else:
+            self._stop_video(name)
+            self._video_frames.pop(name, None)
+            self._iana_video_active = False
+        self._update_mask()
+        self.update()
 
     def show_gadget(self, operator_name: str, side: str | None = None):
         side = side or self.tactical_overlay.state.my_side
@@ -1054,11 +1103,13 @@ class SoundLayer(QWidget):
     def set_video_command_sender(self, sender):
         self._video_command_sender = sender
 
-    def _play_video(self, filename: str):
+    def _play_video(self, filename: str, loop: bool = False):
         if self._video_command_sender is None:
             print(f"[overlay] No hay reproductor de video conectado para {filename}.", flush=True)
             return
-        if filename.startswith("Gadget "):
+        if filename == "iana_gadget_loop.mp4":
+            size = self._iana_video_rect.size()
+        elif filename.startswith("Gadget "):
             size = self._gadget_animation_rect.size()
         elif filename.startswith("inicio de partida"):
             size = self._round_animation_rect.size()
@@ -1066,6 +1117,8 @@ class SoundLayer(QWidget):
             size = self.size()
         command = {"type": "play_video", "name": filename,
                    "width": max(1, size.width()), "height": max(1, size.height())}
+        if loop:
+            command["loop"] = True
         if not self._video_command_sender(command):
             print(f"[overlay] No se pudo iniciar el video {filename}.", flush=True)
 
@@ -1078,6 +1131,9 @@ class SoundLayer(QWidget):
         x: int, y: int, canvas_width: int, canvas_height: int,
         panel_rect: tuple[int, int, int, int],
     ):
+        if (filename == "iana_gadget_loop.mp4"
+                and (not self.tactical_overlay.state.tactical_hud_visible or not self._is_iana_selected())):
+            return
         frame = QPixmap()
         if not frame.loadFromData(data, "PNG"):
             return
@@ -1195,6 +1251,11 @@ class SoundLayer(QWidget):
                 painter.setClipPath(clip_path)
                 painter.drawPixmap(card_target, self._gadget_card, QRectF(self._gadget_card.rect()))
                 painter.restore()
+        iana_video = self._video_frames.get("iana_gadget_loop.mp4")
+        if (iana_video is not None and self.tactical_overlay.state.tactical_hud_visible
+                and self._is_iana_selected()):
+            frame, *_ = iana_video
+            painter.drawPixmap(QRectF(self._iana_video_rect), frame, QRectF(frame.rect()))
         owner = self.tactical_overlay
         if owner.state.sound_direction_deg is not None:
             owner._draw_sound_indicator(painter)
